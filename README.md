@@ -29,6 +29,11 @@
 **Arrière-plan**
 - Flou ou remplacement par une image, calculé sur l'iPhone (Vision, segmentation de personne) : zéro charge pour le PC
 
+**Calques**
+- Logos, filigranes (PNG transparents) et textes par-dessus la caméra, visibles dans toutes les applications
+- Déplacement à la souris directement sur l'aperçu, taille à la molette, positions rapides (coins, centre)
+- Opacité, couleur et fond du texte, visibilité, ordre des calques ; tout est mémorisé
+
 **Webcam virtuelle**
 - Apparaît sous le nom « AirCam » dans toutes les applications compatibles DirectShow
 - Sortie en 720p ou 1080p ; écran « En attente de l'iPhone » quand le téléphone n'est pas connecté
