@@ -15,7 +15,7 @@ let aircamBonjourType = "_aircam._tcp"
 struct Settings: Codable, Equatable {
     var camera = "back"        // front | back | ultrawide | tele
     var resolution = "1080p"   // 720p | 1080p | 4k
-    var fps = 30               // 30 | 60
+    var fps = 30               // 30 | 60 | 120
     var torch = false
     var zoom = 1.0
     var exposure = 0.0         // EV bias, -2...2
@@ -29,7 +29,7 @@ struct Settings: Codable, Equatable {
     var width: Int32 { resolution == "4k" ? 3840 : resolution == "720p" ? 1280 : 1920 }
     var bitrate: Int {
         let base = resolution == "4k" ? 20_000_000 : resolution == "720p" ? 4_000_000 : 8_000_000
-        return fps > 30 ? base * 3 / 2 : base
+        return fps > 60 ? base * 2 : fps > 30 ? base * 3 / 2 : base
     }
 }
 
@@ -45,6 +45,7 @@ struct Status: Codable {
     var fps: Int
     var battery: Int // percent, -1 unknown
     var supportsLog: Bool // current camera can capture in Apple Log
+    var maxFps: Int       // highest frame rate (≤ 120) for the current camera, resolution and log mode
 }
 
 func frame(_ type: Msg, _ payload: Data) -> Data {

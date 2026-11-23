@@ -351,7 +351,7 @@ aircam.onState(s => {
 });
 aircam.onStatus(st => {
   const relayout = !status || st.cameras.join() !== status.cameras.join() || st.hasTorch !== status.hasTorch || st.maxZoom !== status.maxZoom
-    || st.supportsLog !== status.supportsLog || st.settings.log !== status.settings.log;
+    || st.supportsLog !== status.supportsLog || st.settings.log !== status.settings.log || st.maxFps !== status.maxFps;
   status = st;
   if (st.settings.camera !== settings.camera) { settings.camera = st.settings.camera; store.set('settings', settings); }
   if (relayout && (view === 'cam' || view === 'adjust')) render(); else updateChip();
@@ -453,7 +453,7 @@ function vCam() {
         settings.camera, v => { set('camera', v); if (v === 'front' && settings.torch) set('torch', false); })),
     h('div', { class: 'box' + off }, h('h3', {}, 'Image'),
       seg([['720p', '720p'], ['1080p', '1080p'], ['4k', '4K']], settings.resolution, v => set('resolution', v)),
-      seg([[30, '30 i/s'], [60, '60 i/s']], settings.fps, v => set('fps', v)),
+      seg([[30, '30 i/s'], [60, '60 i/s'], [120, '120 i/s']], settings.fps, v => set('fps', v), v => !!status?.maxFps && v > status.maxFps),
       slider('Zoom', 1, Math.max(1.01, status?.maxZoom || 5), .05, settings.zoom, v => `${v.toFixed(1)}×`, v => set('zoom', v)),
       slider('Exposition', -2, 2, .1, settings.exposure, v => `${v > 0 ? '+' : ''}${v.toFixed(1)}`, v => set('exposure', v)),
       toggle('Mise au point verrouillée', settings.focus === 'locked', on => set('focus', on ? 'locked' : 'auto')),

@@ -28,7 +28,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange]
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
-        session.sessionPreset = .inputPriority // we pick device formats ourselves (needed for 60 fps / 4K)
+        session.sessionPreset = .inputPriority // we pick device formats ourselves (needed for 60/120 fps / 4K)
         session.automaticallyConfiguresCaptureDeviceForWideColor = false // we set the color space (Apple Log) ourselves
         if session.canAddOutput(output) { session.addOutput(output) }
     }
@@ -101,23 +101,29 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         return dev.formats.contains { $0.supportedColorSpaces.contains(.appleLog) }
     }
 
-    /// Best format at `width` (16:9, NV12 full range) supporting `fps`; falls back to 30 fps, then any 16:9 width.
+    /// Best format at `width` (16:9, NV12 full range) supporting `fps`; falls back to 60, then 30 fps, then any 16:9 width.
     /// Apple Log formats are 10-bit; the video output still delivers 8-bit NV12 (log values preserved).
     static func pickFormat(_ dev: AVCaptureDevice, width: Int32, fps: Int, log: Bool = false) -> (AVCaptureDevice.Format?, Int) {
-        func find(_ w: Int32, _ f: Int) -> AVCaptureDevice.Format? {
-            dev.formats.first { fmt in
-                let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
-                let kind: Bool
-                if #available(iOS 17.0, *), log { kind = fmt.supportedColorSpaces.contains(.appleLog) }
-                else { kind = CMFormatDescriptionGetMediaSubType(fmt.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange }
-                return d.width == w && d.height * 16 == d.width * 9 && kind
-                    && fmt.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= Double(f) }
-            }
-        }
-        for (w, f) in [(width, fps), (width, 30), (1920, 30), (1280, 30)] {
-            if let fmt = find(w, f) { return (fmt, f) }
+        for (w, f) in [(width, fps), (width, min(fps, 60)), (width, 30), (1920, 30), (1280, 30)] {
+            if let fmt = formats(dev, width: w, log: log).first(where: { $0.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= Double(f) } }) { return (fmt, f) }
         }
         return (nil, 30)
+    }
+
+    /// Highest of 30/60/120 fps available at `width`.
+    static func maxFps(_ dev: AVCaptureDevice, width: Int32, log: Bool) -> Int {
+        let best = formats(dev, width: width, log: log).flatMap { $0.videoSupportedFrameRateRanges.map(\.maxFrameRate) }.max() ?? 30
+        return best >= 120 ? 120 : best >= 60 ? 60 : 30
+    }
+
+    private static func formats(_ dev: AVCaptureDevice, width w: Int32, log: Bool) -> [AVCaptureDevice.Format] {
+        dev.formats.filter { fmt in
+            let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
+            let kind: Bool
+            if #available(iOS 17.0, *), log { kind = fmt.supportedColorSpaces.contains(.appleLog) }
+            else { kind = CMFormatDescriptionGetMediaSubType(fmt.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange }
+            return d.width == w && d.height * 16 == d.width * 9 && kind
+        }
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {

@@ -58,7 +58,8 @@ final class AppModel: ObservableObject {
                         maxZoom: Double(dev.map(CameraController.maxZoom) ?? 1),
                         width: Int(dims?.width ?? 0), height: Int(dims?.height ?? 0), fps: camera.activeFps,
                         battery: battery < 0 ? -1 : Int(battery * 100),
-                        supportsLog: dev.map(CameraController.supportsLog) ?? false)
+                        supportsLog: dev.map(CameraController.supportsLog) ?? false,
+                        maxFps: dev.map { CameraController.maxFps($0, width: camera.settings.width, log: camera.settings.log) } ?? 30)
         if let json = try? JSONEncoder().encode(st) { server.send(.status, json) }
     }
 
