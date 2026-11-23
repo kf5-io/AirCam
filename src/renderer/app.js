@@ -23,6 +23,7 @@ const ICONS = { // static, trusted markup
   wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 15.8a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19" r="1.3" class="fill"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
   text: '<path d="M5 6V4.5h14V6M12 4.5v15M9 19.5h6"/>',
+  layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff: '<path d="M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.9 3.6M6.4 6.9A15.6 15.6 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
@@ -291,7 +292,7 @@ function pickBg() {
 }
 
 // ───────── views ─────────
-const NAV = [['cam', 'Caméra', 'cam'], ['devices', 'Appareils', 'phone']];
+const NAV = [['cam', 'Caméra', 'cam'], ['layers', 'Calques', 'layers'], ['devices', 'Appareils', 'phone']];
 function renderNav() {
   $('#nav').replaceChildren(
     h('div', { class: 'logo' }, h('img', { src: '../assets/icon.png', alt: '' }), h('span', {}, 'AirCam')),
@@ -302,7 +303,7 @@ function renderNav() {
 function go(v) { view = v; render(); $('#main').scrollTop = 0; }
 function render() {
   renderNav();
-  $('#main').replaceChildren({ cam: vCam, devices: vDevices, settings: vSettings }[view]());
+  $('#main').replaceChildren({ cam: vCam, layers: vLayersPage, devices: vDevices, settings: vSettings }[view]());
 }
 
 // UI atoms
@@ -346,8 +347,7 @@ function vCam() {
   updateChip();
   const cams = status?.cameras || Object.keys(CAMS);
 
-  const stage = h('div', { class: 'stage' }, canvas, selBox, chip);
-  bindStage(stage);
+  const stage = h('div', { class: 'stage' }, canvas, chip);
   const vcamLine = vcamInstalled === false
     ? [h('span', { class: 'dot' }), h('span', { class: 'grow' }, 'La webcam virtuelle « AirCam » n’est pas installée.'), h('button', { class: 'btn small', onclick: installVcam }, 'Installer')]
     : [h('span', { class: 'dot ok' }), h('span', { class: 'grow' }, 'Choisis « AirCam » comme caméra dans Zoom, Teams, Discord, OBS…')];
@@ -379,10 +379,20 @@ function vCam() {
       }),
       settings.background === 'replace' && bgImage && h('div', { class: 'bgthumb', style: `background-image:url("${bgImage}")` }),
       settings.background === 'replace' && h('button', { class: 'btn small', onclick: pickBg }, icon('image'), 'Changer d’image')));
-  layersBox = vLayers();
-  panel.append(layersBox);
 
   return h('div', { class: 'cam' }, left, panel);
+}
+
+// Layers page: same preview (drag layers on it) + the layer editor.
+function vLayersPage() {
+  chip = h('span', { class: 'chip' });
+  updateChip();
+  const stage = h('div', { class: 'stage' }, canvas, selBox, chip);
+  bindStage(stage);
+  layersBox = vLayers();
+  return h('div', { class: 'cam' },
+    h('div', {}, stage, h('div', { class: 'under' }, h('span', { class: 'grow' }, 'Glisse un calque sur l’aperçu pour le déplacer, molette pour changer sa taille. Les calques apparaissent dans la webcam « AirCam ».'))),
+    h('div', { class: 'panel' }, layersBox));
 }
 
 let layersBox = null;
