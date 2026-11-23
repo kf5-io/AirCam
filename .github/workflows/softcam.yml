@@ -18,7 +18,7 @@ jobs:
   build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with: { repository: tshino/softcam, ref: '${{ env.SOFTCAM_REF }}' }
 
       # Own device name, CLSID and shared memory names: no clash with other softcam-based apps.
