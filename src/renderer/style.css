@@ -77,6 +77,10 @@ input.field:focus { border-color: var(--accent); background: var(--surface-2); }
 .stage { position: relative; aspect-ratio: 16 / 9; border-radius: 18px; overflow: hidden; background: #000; border: 1px solid var(--line);
   box-shadow: 0 30px 80px rgba(0,0,0,.55), 0 0 0 1px rgba(124,92,255,.08); }
 .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stage.vertical { aspect-ratio: 9 / 16; height: calc(100vh - 170px); min-height: 420px; width: auto; max-width: 100%; margin: 0 auto; }
+.focusring { position: absolute; width: 74px; height: 74px; margin: -37px 0 0 -37px; border: 2px solid #ffd166; border-radius: 12px; pointer-events: none;
+  animation: focusring .9s cubic-bezier(.2,.8,.2,1) forwards; box-shadow: 0 0 0 1px rgba(0,0,0,.35); }
+@keyframes focusring { from { transform: scale(1.5); opacity: 0; } 25% { transform: scale(1); opacity: 1; } 80% { opacity: 1; } to { opacity: 0; } }
 .chip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 13px; border-radius: 99px; font-size: 13px; font-weight: 600;
   background: rgba(10,10,14,.62); backdrop-filter: blur(16px); border: 1px solid var(--line); white-space: nowrap; }
 .stage .chip { position: absolute; top: 14px; left: 14px; }

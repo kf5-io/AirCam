@@ -86,7 +86,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         } catch {}
 
         if let conn = output.connection(with: .video) {
-            if conn.isVideoOrientationSupported { conn.videoOrientation = .landscapeRight } // webcam output is always 16:9
+            if conn.isVideoOrientationSupported { conn.videoOrientation = s.portrait ? .portrait : .landscapeRight }
             if conn.isVideoMirroringSupported { conn.isVideoMirrored = false } // mirroring is done on the PC
             if conn.isVideoStabilizationSupported { conn.preferredVideoStabilizationMode = .off } // adds latency
         }
@@ -123,6 +123,25 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
             if #available(iOS 17.0, *), log { kind = fmt.supportedColorSpaces.contains(.appleLog) }
             else { kind = CMFormatDescriptionGetMediaSubType(fmt.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange }
             return d.width == w && d.height * 16 == d.width * 9 && kind
+        }
+    }
+
+    /// Focus and exposure at a point of the video frame (normalized, top-left origin).
+    func focus(at p: CGPoint) {
+        queue.async {
+            guard let dev = self.device, (try? dev.lockForConfiguration()) != nil else { return }
+            // Points of interest use the sensor's landscape-right space; portrait frames are rotated 90° from it.
+            let poi = self.settings.portrait ? CGPoint(x: p.y, y: 1 - p.x) : p
+            if dev.isFocusPointOfInterestSupported {
+                dev.focusPointOfInterest = poi
+                let mode: AVCaptureDevice.FocusMode = self.settings.focus == "locked" ? .autoFocus : .continuousAutoFocus // locked: focus once, then hold
+                if dev.isFocusModeSupported(mode) { dev.focusMode = mode }
+            }
+            if dev.isExposurePointOfInterestSupported {
+                dev.exposurePointOfInterest = poi
+                if dev.isExposureModeSupported(.continuousAutoExposure) { dev.exposureMode = .continuousAutoExposure }
+            }
+            dev.unlockForConfiguration()
         }
     }
 

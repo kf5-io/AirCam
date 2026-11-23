@@ -102,6 +102,34 @@ const LOOKS = {
   }],
 };
 
+// ───────── framing (crop rectangle in normalized source coordinates) ─────────
+/** Largest centered crop of the output aspect `ar` (w/h) inside a source of aspect `srcAr`. */
+function coverCrop(srcAr, ar) {
+  const w = Math.min(1, ar / srcAr), h = Math.min(1, srcAr / ar);
+  return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+}
+/** Center Stage-like target: keeps every face in frame, heads in the upper third, never zooms past 2.5×. */
+function framingTarget(faces, full) {
+  if (!faces.length) return full;
+  const x0 = Math.min(...faces.map(f => f[0])), y0 = Math.min(...faces.map(f => f[1]));
+  const x1 = Math.max(...faces.map(f => f[0] + f[2])), y1 = Math.max(...faces.map(f => f[1] + f[3]));
+  const k = full.w / full.h; // crop aspect stays the output aspect
+  const h = Math.min(full.h, Math.max(full.h / 2.5, (y1 - y0) / .3, (x1 - x0) / .6 / k));
+  const w = h * k;
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2 + h * .12; // faces a bit above center
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  return { x: clamp(cx - w / 2, 0, 1 - w), y: clamp(cy - h / 2, 0, 1 - h), w, h }; // may pan over the whole source, not just the centered crop
+}
+/** Moves `cur` towards `target`; dt in seconds. Small moves are ignored so the frame doesn't swim. */
+function easeCrop(cur, target, dt, tau = .45) {
+  if (!cur) return { ...target };
+  const d = Math.max(Math.abs(cur.x - target.x), Math.abs(cur.y - target.y), Math.abs(cur.w - target.w));
+  if (d < .015) return cur;
+  const t = 1 - Math.exp(-dt / tau);
+  return { x: cur.x + (target.x - cur.x) * t, y: cur.y + (target.y - cur.y) * t, w: cur.w + (target.w - cur.w) * t, h: cur.h + (target.h - cur.h) * t };
+}
+
 if (typeof module !== 'undefined') module.exports = {
+  coverCrop, framingTarget, easeCrop,
   nal, sps, codecOf, rgbaToBgr, parseCube, sampleLut, makeLut, appleLogToLinear, linearToAppleLog, appleLogToRec709, srgbEotf, LOOKS,
 };

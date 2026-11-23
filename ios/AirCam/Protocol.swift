@@ -4,9 +4,11 @@ import Foundation
 enum Msg: UInt8 {
     case video = 0x01      // iPhone → PC: [u8 flags (bit0 = keyframe)][u64 BE pts µs][H.264 Annex B]
     case status = 0x02     // iPhone → PC: JSON Status
+    case faces = 0x03      // iPhone → PC: {"f": [[x, y, w, h], …]} normalized, top-left origin (auto framing)
     case control = 0x10    // PC → iPhone: JSON Settings (full object)
     case background = 0x11 // PC → iPhone: JPEG/PNG image for background replacement
     case keyframe = 0x12   // PC → iPhone: decoder lost sync, send a keyframe
+    case focus = 0x13      // PC → iPhone: {"x", "y"} normalized point in the video frame: focus + exposure there
 }
 
 let aircamPort: UInt16 = 47800
@@ -25,6 +27,8 @@ struct Settings: Codable, Equatable {
     var temperature = 5500.0   // Kelvin, manual white balance
     var tint = 0.0             // -150...150, manual white balance
     var log = false            // Apple Log capture (iPhone 15 Pro and later); the PC applies the LUT
+    var portrait = false       // vertical 9:16 output: frames come out in portrait
+    var framing = false        // auto framing: send face rectangles to the PC
 
     var width: Int32 { resolution == "4k" ? 3840 : resolution == "720p" ? 1280 : 1920 }
     var bitrate: Int {

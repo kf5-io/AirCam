@@ -38,3 +38,22 @@ test('Apple Log: curve round-trips and mid gray lands mid-screen', () => {
   const [r] = appleLogToRec709(p, p, p);
   assert.ok(r > .4 && r < .6, `mid gray displays at ${r}`);
 });
+
+const { coverCrop, framingTarget, easeCrop } = require('../src/renderer/video');
+
+test('framing: cover crop, face kept inside, zoom limited', () => {
+  const full = coverCrop(16 / 9, 9 / 16); // vertical output from a landscape frame
+  assert.ok(Math.abs(full.w - (9 / 16) / (16 / 9)) < 1e-9 && full.h === 1);
+  const land = coverCrop(16 / 9, 16 / 9);
+  assert.deepStrictEqual(land, { x: 0, y: 0, w: 1, h: 1 });
+  const face = [.7, .3, .1, .15];
+  const t = framingTarget([face], land);
+  assert.ok(t.x <= face[0] && t.x + t.w >= face[0] + face[2] && t.y <= face[1] && t.y + t.h >= face[1] + face[3], 'face inside');
+  assert.ok(t.h >= 1 / 2.5 - 1e-9, 'zoom ≤ 2.5×');
+  assert.ok(Math.abs(t.w / t.h - 1) < 1e-9, 'keeps output aspect (normalized)');
+  assert.deepStrictEqual(framingTarget([], land), land);
+  const side = [.85, .3, .1, .15], v = framingTarget([side], full); // vertical crop follows a face near the edge
+  assert.ok(v.x <= side[0] && v.x + v.w >= side[0] + side[2], 'edge face inside vertical crop');
+  const step = easeCrop(land, t, 1 / 30);
+  assert.ok(step.w < 1 && step.w > t.w, 'moves part of the way');
+});

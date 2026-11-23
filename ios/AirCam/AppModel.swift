@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import UIKit
+import Vision
 
 // Wires camera → (segmentation) → encoder → server, and applies settings sent by the PC.
 final class AppModel: ObservableObject {
@@ -12,6 +13,8 @@ final class AppModel: ObservableObject {
     private let encoder = Encoder()
     private let segmenter = Segmenter()
     private let server = Server()
+    private let faceRequest = VNDetectFaceRectanglesRequest()
+    private var frameCount = 0
 
     init() {
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -36,8 +39,20 @@ final class AppModel: ObservableObject {
     private func frame(_ pb: CVPixelBuffer, _ pts: CMTime) {
         guard server.isConnected else { return } // no PC: capture keeps running for the preview, nothing is encoded
         let s = camera.settings
+        frameCount += 1
+        if s.framing, frameCount % 5 == 0 { detectFaces(pb) } // ~6–24 Hz is plenty for smooth framing on the PC
         let img = s.background == "none" ? pb : segmenter.process(pb, mode: s.background)
         encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: s.bitrate)
+    }
+
+    private func detectFaces(_ pb: CVPixelBuffer) {
+        guard (try? VNImageRequestHandler(cvPixelBuffer: pb, options: [:]).perform([faceRequest])) != nil else { return }
+        // Vision: bottom-left origin → top-left for the PC.
+        let f = (faceRequest.results ?? []).prefix(8).map { r -> [Double] in
+            let b = r.boundingBox
+            return [b.minX, 1 - b.maxY, b.width, b.height].map { (Double($0) * 1000).rounded() / 1000 }
+        }
+        if let json = try? JSONSerialization.data(withJSONObject: ["f": f]) { server.send(.faces, json, droppable: true) }
     }
 
     private func sendVideo(_ data: Data, _ key: Bool, _ pts: CMTime) {
@@ -78,6 +93,9 @@ final class AppModel: ObservableObject {
         case .background:
             let img = CIImage(data: data)
             camera.queue.async { [weak self] in self?.segmenter.background = img }
+        case .focus:
+            guard let o = try? JSONSerialization.jsonObject(with: data) as? [String: Double], let x = o["x"], let y = o["y"] else { return }
+            camera.focus(at: CGPoint(x: min(1, max(0, x)), y: min(1, max(0, y))))
         case .keyframe:
             camera.queue.async { [weak self] in self?.encoder.requestKeyframe() }
         default: break

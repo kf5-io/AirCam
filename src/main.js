@@ -76,6 +76,7 @@ async function connect(dev) {
     conn = { sock, dev, send: (type, payload) => sock.write(sec.seal(encode(type, payload))) };
     const parser = new Parser((type, payload) => {
       if (type === MSG.VIDEO) send('video', payload);
+      else if (type === MSG.FACES) { try { send('faces', JSON.parse(payload).f); } catch {} }
       else if (type === MSG.STATUS) {
         try { const st = JSON.parse(payload); lastName = st.name; send('status', st); } catch {}
       }
@@ -211,6 +212,9 @@ ipcMain.on('connect-ip', (_e, host) => {
 ipcMain.on('disconnect', () => disconnect(true));
 ipcMain.on('control', (_e, settings) => { if (conn) conn.send(MSG.CONTROL, Buffer.from(JSON.stringify(settings))); });
 ipcMain.on('keyframe', () => { if (conn) conn.send(MSG.KEYFRAME); });
+ipcMain.on('focus', (_e, x, y) => {
+  if (conn && Number.isFinite(x) && Number.isFinite(y)) conn.send(MSG.FOCUS, Buffer.from(JSON.stringify({ x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) })));
+});
 ipcMain.on('background', (_e, bytes) => {
   if (conn && bytes?.length && bytes.length < 16 << 20) conn.send(MSG.BACKGROUND, Buffer.from(bytes));
 });

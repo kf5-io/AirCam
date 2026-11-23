@@ -31,11 +31,13 @@ contextBridge.exposeInMainWorld('aircam', {
   onState: f => on('state', f),
   onStatus: f => on('status', f),
   onVideo: f => on('video', f), // Uint8Array: [flags][u64 pts µs][H.264 Annex B]
+  onFaces: f => on('faces', f), // [[x, y, w, h], …] normalized, top-left origin
   connect: id => ipcRenderer.send('connect', id),
   connectIp: host => ipcRenderer.send('connect-ip', host),
   disconnect: () => ipcRenderer.send('disconnect'),
   control: settings => ipcRenderer.send('control', settings),
   keyframe: () => ipcRenderer.send('keyframe'),
+  focus: (x, y) => ipcRenderer.send('focus', x, y),
   background: bytes => ipcRenderer.send('background', bytes),
   luts: {
     list: () => ipcRenderer.invoke('lut-list'),

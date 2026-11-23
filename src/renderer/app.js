@@ -46,9 +46,9 @@ const debounce = (f, ms) => { let t; return (...a) => { clearTimeout(t); t = set
 // ───────── state ─────────
 // `settings` is sent as-is to the phone (ios/AirCam/Protocol.swift Settings); PC is the source of truth.
 const DEFAULTS = { camera: 'back', resolution: '1080p', fps: 30, torch: false, zoom: 1, exposure: 0, focus: 'auto', background: 'none',
-  whiteBalance: 'auto', temperature: 5500, tint: 0, log: false };
+  whiteBalance: 'auto', temperature: 5500, tint: 0, log: false, portrait: false, framing: false };
 let settings = { ...DEFAULTS, ...store.get('settings', {}), torch: false };
-let ui = { mirror: false, rotate: false, output: '1080p', ...store.get('ui', {}) }; // PC-side image options
+let ui = { mirror: false, rotate: false, output: '1080p', aspect: '16:9', ...store.get('ui', {}) }; // PC-side image options
 let bgImage = store.get('bgImage', null); // data URL (JPEG ≤ 1920 px) for background replacement
 let devices = [];
 let conn = { state: 'disconnected' };
@@ -59,7 +59,9 @@ let view = 'cam';
 const CAMS = { front: 'Avant', back: 'Arrière', ultrawide: 'Ultra grand-angle', tele: 'Téléobjectif' };
 const sendSettings = debounce(() => aircam.control(settings), 60);
 function set(k, v) { settings[k] = v; store.set('settings', settings); sendSettings(); }
-function setUi(k, v) { ui[k] = v; store.set('ui', ui); if (k === 'output') openVcam(); if (!live()) placeholder(); }
+function setUi(k, v) { ui[k] = v; store.set('ui', ui); if (k === 'output' || k === 'aspect') openVcam(); if (!live()) placeholder(); }
+// 9:16: the phone films in portrait (full resolution) and the virtual camera becomes vertical.
+function setAspect(v) { setUi('aspect', v); set('portrait', v === '9:16'); crop = null; render(); toast('Relance la caméra dans tes applications pour voir le nouveau format'); }
 
 // ───────── video pipeline ─────────
 const OUT = { '720p': [1280, 720], '1080p': [1920, 1080] };
@@ -71,7 +73,8 @@ let vcamOk = false;
 const live = () => performance.now() - lastFrame < 1000;
 
 async function openVcam() {
-  const [w, hh] = OUT[ui.output] || OUT['1080p'];
+  let [w, hh] = OUT[ui.output] || OUT['1080p'];
+  if (ui.aspect === '9:16') [w, hh] = [hh, w];
   canvas.width = w; canvas.height = hh;
   bgr = new Uint8Array(w * hh * 3);
   vcamOk = await aircam.vcam.open(w, hh);
@@ -83,20 +86,42 @@ function pushVcam() {
   aircam.vcam.send(rgbaToBgr(ctx.getImageData(0, 0, canvas.width, canvas.height).data, bgr));
 }
 
+// The output shows `crop` (normalized source rectangle): cover-fit, or following faces when framing is on.
+let crop = null, faces = [], facesAt = 0, lastDraw = 0;
+const flips = () => { let sx = ui.mirror ? -1 : 1, sy = 1; if (ui.rotate) { sx = -sx; sy = -1; } return [sx, sy]; }; // 180° = flip both axes
 function draw(frame) {
-  const W = canvas.width, H = canvas.height;
-  let sx = ui.mirror ? -1 : 1, sy = 1;
-  if (ui.rotate) { sx = -sx; sy = -1; } // 180° = flip both axes
+  const W = canvas.width, H = canvas.height, now = performance.now();
+  const fw = frame.displayWidth, fh = frame.displayHeight;
+  const full = coverCrop(fw / fh, W / H);
+  const target = settings.framing && now - facesAt < 1500 ? framingTarget(faces, full) : full;
+  crop = settings.framing ? easeCrop(crop, target, Math.min(.1, (now - lastDraw) / 1000)) : full;
+  lastDraw = now;
+  const [sx, sy] = flips();
   ctx.setTransform(sx, 0, 0, sy, sx < 0 ? W : 0, sy < 0 ? H : 0);
-  const fw = frame.displayWidth, fh = frame.displayHeight, k = Math.max(W / fw, H / fh); // cover
   const src = grading() ? grader.render(frame, gradeParams()) : frame;
-  ctx.drawImage(src, (W - fw * k) / 2, (H - fh * k) / 2, fw * k, fh * k);
+  ctx.drawImage(src, crop.x * fw, crop.y * fh, crop.w * fw, crop.h * fh, 0, 0, W, H);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   frame.close();
-  lastFrame = performance.now();
+  lastFrame = now;
   drawLayers();
   pushVcam();
 }
+aircam.onFaces(f => { faces = f; facesAt = performance.now(); });
+
+// Tap to focus/expose: preview point → source point (undo flips and crop) → phone.
+function tapFocus(stage, e) {
+  if (conn.state !== 'connected' || !crop) return;
+  const r = canvas.getBoundingClientRect();
+  let u = (e.clientX - r.left) / r.width, v = (e.clientY - r.top) / r.height;
+  const [sx, sy] = flips();
+  if (sx < 0) u = 1 - u;
+  if (sy < 0) v = 1 - v;
+  aircam.focus(crop.x + u * crop.w, crop.y + v * crop.h);
+  const ring = h('div', { class: 'focusring', style: `left:${(e.clientX - r.left) / r.width * 100}%;top:${(e.clientY - r.top) / r.height * 100}%` });
+  stage.append(ring);
+  setTimeout(() => ring.remove(), 900);
+}
+const stageEl = (...kids) => h('div', { class: 'stage' + (ui.aspect === '9:16' ? ' vertical' : '') }, ...kids);
 
 // ───────── color: adjustments + LUTs (GPU, src/renderer/grade.js) ─────────
 const grader = (() => { try { return Grade; } catch { return null; } })(); // null without WebGL2
@@ -296,7 +321,7 @@ function bindStage(stage) {
 const logo = new Image();
 logo.src = '../assets/icon.png';
 function placeholder() {
-  const W = canvas.width, H = canvas.height, s = W / 1920;
+  const W = canvas.width, H = canvas.height, s = Math.min(W / 1920, H / 1080);
   const g = ctx.createRadialGradient(W / 2, H * .42, 0, W / 2, H * .42, W * .6);
   g.addColorStop(0, '#1a1530'); g.addColorStop(1, '#07070a');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
@@ -438,7 +463,9 @@ function vCam() {
   updateChip();
   const cams = status?.cameras || Object.keys(CAMS);
 
-  const stage = h('div', { class: 'stage' }, canvas, chip);
+  const stage = stageEl(canvas, chip);
+  stage.onclick = e => tapFocus(stage, e);
+  stage.title = 'Clique pour faire la mise au point et l’exposition à cet endroit';
   const vcamLine = vcamInstalled === false
     ? [h('span', { class: 'dot' }), h('span', { class: 'grow' }, 'La webcam virtuelle « AirCam » n’est pas installée.'), h('button', { class: 'btn small', onclick: installVcam }, 'Installer')]
     : [h('span', { class: 'dot ok' }), h('span', { class: 'grow' }, 'Choisis « AirCam » comme caméra dans Zoom, Teams, Discord, OBS…')];
@@ -454,6 +481,8 @@ function vCam() {
     h('div', { class: 'box' + off }, h('h3', {}, 'Image'),
       seg([['720p', '720p'], ['1080p', '1080p'], ['4k', '4K']], settings.resolution, v => set('resolution', v)),
       seg([[30, '30 i/s'], [60, '60 i/s'], [120, '120 i/s']], settings.fps, v => set('fps', v), v => !!status?.maxFps && v > status.maxFps),
+      seg([['16:9', 'Paysage 16:9'], ['9:16', 'Vertical 9:16']], ui.aspect, setAspect),
+      toggle('Cadrage automatique', settings.framing, on => { set('framing', on); crop = null; }),
       slider('Zoom', 1, Math.max(1.01, status?.maxZoom || 5), .05, settings.zoom, v => `${v.toFixed(1)}×`, v => set('zoom', v)),
       slider('Exposition', -2, 2, .1, settings.exposure, v => `${v > 0 ? '+' : ''}${v.toFixed(1)}`, v => set('exposure', v)),
       toggle('Mise au point verrouillée', settings.focus === 'locked', on => set('focus', on ? 'locked' : 'auto')),
@@ -478,7 +507,7 @@ function vCam() {
 function vAdjust() {
   chip = h('span', { class: 'chip' });
   updateChip();
-  const stage = h('div', { class: 'stage' }, canvas, chip);
+  const stage = stageEl(canvas, chip);
   const manual = settings.whiteBalance === 'manual';
   const wbRows = h('div', { class: 'stack' + (manual ? '' : ' off') },
     slider('Température', 2500, 10000, 50, settings.temperature, v => manual ? `${v} K` : 'Auto', v => set('temperature', v), 'linear-gradient(90deg,#3d7bff,#cfe0ff,#fff1c9,#ffb03d)'),
@@ -534,7 +563,7 @@ function vAdjust() {
 function vLayersPage() {
   chip = h('span', { class: 'chip' });
   updateChip();
-  const stage = h('div', { class: 'stage' }, canvas, selBox, chip);
+  const stage = stageEl(canvas, selBox, chip);
   bindStage(stage);
   layersBox = vLayers();
   return h('div', { class: 'cam' },

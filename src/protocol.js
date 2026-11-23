@@ -1,5 +1,5 @@
 // Wire protocol shared with the iPhone app (ios/AirCam/Protocol.swift): [u8 type][u32 BE length][payload].
-const MSG = { VIDEO: 0x01, STATUS: 0x02, CONTROL: 0x10, BACKGROUND: 0x11, KEYFRAME: 0x12 };
+const MSG = { VIDEO: 0x01, STATUS: 0x02, FACES: 0x03, CONTROL: 0x10, BACKGROUND: 0x11, KEYFRAME: 0x12, FOCUS: 0x13 };
 const PORT = 47800;
 const MAX = 16 << 20;
 
