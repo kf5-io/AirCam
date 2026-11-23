@@ -215,7 +215,7 @@ function updateChip() {
   const parts = [c ? (conn.device.via === 'usb' ? 'USB' : 'Wi-Fi') : 'En attente de l’iPhone'];
   if (status) {
     parts.push(`${status.height}p · ${status.fps} i/s`);
-    if (status.battery >= 0) parts.push(`🔋 ${status.battery} %`);
+    if (status.battery >= 0) parts.push(`batterie ${status.battery} %`);
   }
   chip.replaceChildren(h('span', { class: 'dot' + (c && status ? ' ok' : c ? '' : ' off') }), parts.join(' · '));
 }

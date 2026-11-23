@@ -28,5 +28,35 @@
     "bonjour-service": "^1.4.4",
     "koffi": "^3.3.8",
     "plist": "^5.1.2"
+  },
+  "build": {
+    "appId": "io.kf5.aircam",
+    "productName": "AirCam",
+    "files": [
+      "src/**/*"
+    ],
+    "asarUnpack": [
+      "node_modules/@koromix/**"
+    ],
+    "extraResources": [
+      {
+        "from": "vendor/softcam",
+        "to": "softcam"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "src/assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AirCam",
+      "include": "build/installer.nsh",
+      "artifactName": "AirCam-Setup-${version}.${ext}"
+    }
   }
 }
