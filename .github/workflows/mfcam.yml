@@ -1,0 +1,67 @@
+# Builds the AirCam Media Foundation virtual camera (Windows 11): visible to the Windows Camera app and Store apps.
+# Media source = smourier/VCamSample (MIT) with our FrameGenerator (native/mfcam), new CLSID, 1920x1080, CPU path.
+# Publishes release asset `mfcam-v1/{AirCamMF.dll, aircam-mfcam.exe}` (fetched by `npm run get-softcam`).
+name: mfcam
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['native/mfcam/**', '.github/workflows/mfcam.yml']
+
+permissions:
+  contents: write
+
+env:
+  VCAMSAMPLE_REF: 58b6d4b0e0c2c97fdffd66d23e7c8da6b89f570d
+  TAG: mfcam-v1
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with: { repository: smourier/VCamSample, ref: '${{ env.VCAMSAMPLE_REF }}', path: vcam }
+
+      - name: Patch VCamSample for AirCam
+        shell: pwsh
+        working-directory: vcam/VCamSampleSource
+        run: |
+          function Patch($file, $from, $to) {
+            $c = Get-Content $file -Raw
+            if (-not $c.Contains($from)) { throw "patch failed in ${file}: $from" }
+            Set-Content $file $c.Replace($from, $to) -NoNewline
+          }
+          # own CLSID (must match native/mfcam/aircam-mfcam.cpp)
+          Patch dllmain.cpp '0x3cad447d,0xf283,0x4af4,{0xa3,0xb2,0x6f,0x53,0x63,0x30,0x9f,0x52}' '0x1576b23a,0x51a4,0x4423,{0x96,0xfe,0x23,0x88,0xc2,0xed,0x1e,0xb0}'
+          # 1080p, CPU samples (our frames come from shared memory)
+          Patch MediaStream.cpp '#define NUM_IMAGE_COLS 1280' '#define NUM_IMAGE_COLS 1920'
+          Patch MediaStream.cpp '#define NUM_IMAGE_ROWS 960' '#define NUM_IMAGE_ROWS 1080'
+          Patch MediaStream.cpp 'RETURN_IF_FAILED(_allocator->SetDirectXManager(manager));' '// CPU path (AirCam)'
+          Patch MediaStream.cpp 'RETURN_IF_FAILED(_generator.SetD3DManager(manager, NUM_IMAGE_COLS, NUM_IMAGE_ROWS));' ''
+          Copy-Item ../../native/mfcam/FrameGenerator.h, ../../native/mfcam/FrameGenerator.cpp . -Force
+
+      - uses: microsoft/setup-msbuild@v2
+      - run: nuget restore vcam/VCamSample.sln
+      - name: Build media source
+        shell: pwsh
+        run: |
+          msbuild vcam/VCamSample.sln /m /t:VCamSampleSource /p:Configuration=Release /p:Platform=x64
+          if ($LASTEXITCODE) { msbuild vcam/VCamSample.sln /m /t:VCamSampleSource /p:Configuration=Release /p:Platform=x64 /p:PlatformToolset=v143 }
+          if ($LASTEXITCODE) { exit 1 }
+          New-Item -ItemType Directory out -Force | Out-Null
+          Copy-Item (Get-ChildItem vcam -Recurse -Filter VCamSampleSource.dll | Where-Object FullName -match 'x64\\Release' | Select-Object -First 1).FullName out/AirCamMF.dll
+
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Build registration tool
+        run: cl /nologo /EHsc /O2 /W4 native/mfcam/aircam-mfcam.cpp /Feout/aircam-mfcam.exe
+
+      - name: Publish release asset
+        shell: pwsh
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          Copy-Item vcam/LICENSE out/VCamSample-LICENSE.txt
+          gh release view $env:TAG -R ${{ github.repository }} 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG -R ${{ github.repository }} --title "AirCam Media Foundation camera" --notes "Windows 11 virtual camera (media source built from smourier/VCamSample, MIT) + registration tool. Built by CI." --target ${{ github.sha }} }
+          gh release upload $env:TAG out/AirCamMF.dll out/aircam-mfcam.exe out/VCamSample-LICENSE.txt -R ${{ github.repository }} --clobber
