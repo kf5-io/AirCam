@@ -6,6 +6,7 @@ const fs = require('fs');
 const { Bonjour } = require('bonjour-service');
 const { MSG, PORT, encode, Parser } = require('./protocol');
 const usbmux = require('./usbmux');
+const secure = require('./secure');
 
 // softcam registers a single system-wide camera: a second AirCam would fail to create it.
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -70,15 +71,17 @@ async function connect(dev) {
       s.once('timeout', () => { s.destroy(); reject(new Error('timeout')); });
     });
     sock.setNoDelay(true);
-    conn = { sock, dev };
+    sock.on('error', () => {});
+    const sec = await handshake(sock);
+    conn = { sock, dev, send: (type, payload) => sock.write(sec.seal(encode(type, payload))) };
     const parser = new Parser((type, payload) => {
       if (type === MSG.VIDEO) send('video', payload);
       else if (type === MSG.STATUS) {
         try { const st = JSON.parse(payload); lastName = st.name; send('status', st); } catch {}
       }
     });
-    sock.on('data', d => { try { parser.push(d); } catch { sock.destroy(); } });
-    sock.on('error', () => {});
+    const records = new secure.RecordReader(body => parser.push(sec.open(body))); // one message per record
+    sock.on('data', d => { try { records.push(d); } catch { sock.destroy(); } }); // tampered / garbage: drop the link
     sock.on('close', () => {
       if (conn?.sock !== sock) return;
       conn = null;
@@ -91,6 +94,30 @@ async function connect(dev) {
   } finally {
     connecting = false;
   }
+}
+
+// Ephemeral X25519 key exchange (src/secure.js); the phone answers our hello with its own.
+function handshake(sock) {
+  const me = secure.keyPair();
+  sock.write(me.hello);
+  return new Promise((resolve, reject) => {
+    let buf = Buffer.alloc(0);
+    const timer = setTimeout(() => fail(new Error('handshake timeout')), 4000);
+    const fail = e => { cleanup(); sock.destroy(); reject(e); };
+    const cleanup = () => { clearTimeout(timer); sock.off('data', onData); sock.off('close', onClose); };
+    const onClose = () => fail(new Error('closed during handshake'));
+    const onData = d => {
+      buf = Buffer.concat([buf, d]);
+      if (buf.length < secure.HELLO_LEN) return;
+      cleanup();
+      sock.pause();
+      if (buf.length > secure.HELLO_LEN) sock.unshift(buf.subarray(secure.HELLO_LEN)); // first records may ride along
+      try { resolve(secure.session(me.privateKey, buf.subarray(0, secure.HELLO_LEN), 'pc')); } catch (e) { sock.destroy(); reject(e); }
+      setImmediate(() => sock.resume());
+    };
+    sock.on('data', onData);
+    sock.once('close', onClose);
+  });
 }
 
 function disconnect(manual = true) {
@@ -182,10 +209,10 @@ ipcMain.on('connect-ip', (_e, host) => {
   devices.set(d.id, d); pushDevices(); connect(d);
 });
 ipcMain.on('disconnect', () => disconnect(true));
-ipcMain.on('control', (_e, settings) => { if (conn) conn.sock.write(encode(MSG.CONTROL, Buffer.from(JSON.stringify(settings)))); });
-ipcMain.on('keyframe', () => { if (conn) conn.sock.write(encode(MSG.KEYFRAME)); });
+ipcMain.on('control', (_e, settings) => { if (conn) conn.send(MSG.CONTROL, Buffer.from(JSON.stringify(settings))); });
+ipcMain.on('keyframe', () => { if (conn) conn.send(MSG.KEYFRAME); });
 ipcMain.on('background', (_e, bytes) => {
-  if (conn && bytes?.length && bytes.length < 16 << 20) conn.sock.write(encode(MSG.BACKGROUND, Buffer.from(bytes)));
+  if (conn && bytes?.length && bytes.length < 16 << 20) conn.send(MSG.BACKGROUND, Buffer.from(bytes));
 });
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });

@@ -3,11 +3,13 @@ import UIKit
 
 // TCP server on port 47800, advertised over Bonjour. One PC at a time (a new one replaces the old).
 // Over USB the PC reaches the same port through usbmux (Apple Devices service).
+// Everything after the handshake is encrypted (Secure.swift); each record carries one protocol message.
 final class Server {
     let queue = DispatchQueue(label: "aircam.net")
     private let onQueueKey = DispatchSpecificKey<Bool>()
     private var listener: NWListener?
     private var conn: NWConnection?
+    private var sec: SecureSession? // set once the handshake with `conn` is done
     private var pending = 0 // bytes queued but not yet handed to the OS
     var onConnection: ((String?) -> Void)? // peer description, nil when disconnected
     var onMessage: ((Msg, Data) -> Void)?
@@ -17,7 +19,7 @@ final class Server {
     /// queue.sync that is safe to call from the network queue itself (message handlers run there).
     private func onQueue<T>(_ f: () -> T) -> T { DispatchQueue.getSpecific(key: onQueueKey) == true ? f() : queue.sync(execute: f) }
 
-    var isConnected: Bool { onQueue { conn != nil } }
+    var isConnected: Bool { onQueue { conn != nil && sec != nil } }
 
     func start() {
         let tcp = NWProtocolTCP.Options()
@@ -39,17 +41,30 @@ final class Server {
     private func accept(_ c: NWConnection) {
         conn?.cancel()
         conn = c
+        sec = nil
         pending = 0
         c.stateUpdateHandler = { [weak self, weak c] state in
             guard let self, let c, self.conn === c else { return }
             switch state {
-            case .ready: self.onConnection?(Self.describe(c.endpoint))
-            case .failed, .cancelled: self.conn = nil; self.onConnection?(nil)
+            case .failed, .cancelled: self.conn = nil; self.sec = nil; self.onConnection?(nil)
             default: break
             }
         }
         c.start(queue: queue)
-        receive(c)
+        handshake(c)
+    }
+
+    // PC sends its hello first; we answer with ours and derive the keys.
+    private func handshake(_ c: NWConnection) {
+        c.receive(minimumIncompleteLength: SecureSession.helloLength, maximumLength: SecureSession.helloLength) { [weak self] data, _, _, err in
+            guard let self, err == nil, let data, self.conn === c else { c.cancel(); return }
+            let s = SecureSession()
+            do { try s.accept(data) } catch { c.cancel(); return }
+            c.send(content: s.hello, completion: .contentProcessed { _ in })
+            self.sec = s
+            self.onConnection?(Self.describe(c.endpoint))
+            self.receive(c, s)
+        }
     }
 
     private static func describe(_ e: NWEndpoint) -> String {
@@ -60,18 +75,20 @@ final class Server {
         return "\(e)"
     }
 
-    private func receive(_ c: NWConnection) {
-        c.receive(minimumIncompleteLength: 5, maximumLength: 5) { [weak self] header, _, _, err in
-            guard let self, err == nil, let header, header.count == 5 else { c.cancel(); return }
+    // Records: [u32 BE length][sealed message]; the plaintext is one [type][u32 length][payload] message.
+    private func receive(_ c: NWConnection, _ s: SecureSession) {
+        c.receive(minimumIncompleteLength: 4, maximumLength: 4) { [weak self] header, _, _, err in
+            guard let self, err == nil, let header, header.count == 4 else { c.cancel(); return }
             let b = [UInt8](header)
-            let len = Int(b[1]) << 24 | Int(b[2]) << 16 | Int(b[3]) << 8 | Int(b[4])
-            guard len <= 16 << 20 else { c.cancel(); return } // 16 MB cap (background images)
-            let type = Msg(rawValue: b[0])
-            if len == 0 { if let type { self.onMessage?(type, Data()) }; self.receive(c); return }
+            let len = Int(b[0]) << 24 | Int(b[1]) << 16 | Int(b[2]) << 8 | Int(b[3])
+            guard len >= 16 + 5, len <= 17 << 20 else { c.cancel(); return } // 16 MB payload cap (background images)
             c.receive(minimumIncompleteLength: len, maximumLength: len) { body, _, _, err in
-                guard err == nil, let body, body.count == len else { c.cancel(); return }
-                if let type { self.onMessage?(type, body) }
-                self.receive(c)
+                guard err == nil, let body, body.count == len, let plain = try? s.open(body), plain.count >= 5 else { c.cancel(); return }
+                let p = [UInt8](plain)
+                let n = Int(p[1]) << 24 | Int(p[2]) << 16 | Int(p[3]) << 8 | Int(p[4])
+                guard n == p.count - 5 else { c.cancel(); return }
+                if let type = Msg(rawValue: p[0]) { self.onMessage?(type, Data(p[5...])) }
+                self.receive(c, s)
             }
         }
     }
@@ -80,9 +97,9 @@ final class Server {
     @discardableResult
     func send(_ type: Msg, _ payload: Data, droppable: Bool = false) -> Bool {
         onQueue {
-            guard let c = conn else { return false }
+            guard let c = conn, let s = sec else { return false }
             if droppable && pending > 1_500_000 { return false } // Wi-Fi congested: drop rather than add latency
-            let d = frame(type, payload)
+            guard let d = try? s.seal(frame(type, payload)) else { return false }
             pending += d.count
             c.send(content: d, completion: .contentProcessed { [weak self] _ in
                 self?.queue.async { self?.pending -= d.count }

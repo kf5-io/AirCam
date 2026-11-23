@@ -16,6 +16,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
+      - name: Crypto interop with the PC (test/secure.test.js vector)
+        run: swiftc ios/AirCam/Secure.swift ios/Tests/main.swift -o vector && ./vector
       - run: brew install xcodegen
       - run: xcodegen generate
         working-directory: ios
