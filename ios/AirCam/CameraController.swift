@@ -29,7 +29,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
         session.sessionPreset = .inputPriority // we pick device formats ourselves (needed for 60 fps / 4K)
-        session.automaticallyConfiguresCaptureDeviceWideColor = false // we set the color space (Apple Log) ourselves
+        session.automaticallyConfiguresCaptureDeviceForWideColor = false // we set the color space (Apple Log) ourselves
         if session.canAddOutput(output) { session.addOutput(output) }
     }
 
