@@ -139,6 +139,18 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .cam > div:first-child { position: sticky; top: 56px; } /* preview stays visible while the panel scrolls */
 .btn.danger:hover:not(:disabled) { background: rgba(255,92,138,.25); color: #ff5c8a; }
 
+/* profiles */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.pchip { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 99px; cursor: pointer;
+  background: var(--surface-2); font-size: 14px; font-weight: 600; border: 1px solid transparent; transition: background .15s, border-color .15s, padding .15s; }
+.pchip:hover { background: rgba(255,255,255,.18); padding-right: 34px; }
+.pchip.on { border-color: var(--accent); background: rgba(124,92,255,.22); }
+.pchip .rm { position: absolute; right: 6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; opacity: 0; transition: opacity .15s; }
+.pchip:hover .rm, .pchip .rm:focus-visible { opacity: 1; }
+.pchip .rm:hover { background: rgba(0,0,0,.4); }
+.pchip .rm svg.i { width: 13px; height: 13px; }
+.box .inline .btn { flex: none; }
+
 /* adjustments page */
 .boxhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .iconbtn { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; color: var(--muted); background: var(--surface); }

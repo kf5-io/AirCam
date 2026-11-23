@@ -17,6 +17,7 @@
 - Wi-Fi : l'iPhone est trouvé automatiquement sur le réseau local (Bonjour), sans saisir d'adresse
 - USB : plus stable, moins de latence, utilisé en priorité dès que le câble est branché
 - Connexion manuelle par adresse IP si la découverte automatique est bloquée
+- Flux chiffré de bout en bout (échange de clés X25519 éphémères, AES-256-GCM), sans mot de passe
 - Reconnexion automatique (app iPhone relancée, câble rebranché, Wi-Fi qui saute)
 
 **Image**
@@ -24,6 +25,10 @@
 - 720p, 1080p ou 4K, en 30 ou 60 i/s
 - Zoom, exposition, mise au point verrouillable
 - Miroir et retournement à 180° (iPhone posé dans l'autre sens)
+- Format vertical 9:16 pour les lives TikTok / Instagram (l'iPhone filme en portrait, pleine résolution)
+- Cadrage automatique façon Center Stage : l'iPhone détecte les visages, le PC recadre en douceur
+- Clic sur l'aperçu : mise au point et exposition à cet endroit
+- 30, 60 ou 120 i/s selon l'iPhone
 - Lampe torche de l'iPhone comme lumière d'appoint
 
 **Ajustements et LUT**
@@ -40,6 +45,9 @@
 - Logos, filigranes (PNG transparents) et textes par-dessus la caméra, visibles dans toutes les applications
 - Déplacement à la souris directement sur l'aperçu, taille à la molette, positions rapides (coins, centre)
 - Opacité, couleur et fond du texte, visibilité, ordre des calques ; tout est mémorisé
+
+**Profils**
+- Caméra, ajustements, LUT et calques enregistrés ensemble (« Visio », « Stream »…), appliqués en un clic
 
 **Webcam virtuelle**
 - Apparaît sous le nom « AirCam » dans toutes les applications compatibles DirectShow
@@ -104,6 +112,7 @@ src/
   main.js              process principal : fenêtre, découverte Bonjour + USB, connexion à l'iPhone, installation de la webcam
   preload.js           API exposée à l'interface + webcam virtuelle (softcam.dll via koffi)
   protocol.js          protocole réseau partagé avec l'iPhone
+  secure.js            chiffrement du flux (X25519 + AES-256-GCM)
   usbmux.js            tunnel TCP vers l'iPhone par le câble (service Apple Mobile Device)
   renderer/
     index.html, app.js, style.css   l'interface (vanilla JS, sans framework, même design que KF Player)
@@ -120,7 +129,9 @@ test/                  tests unitaires (node --test)
 
 **Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), dessine dans un canvas (aperçu, miroir, rotation) et pousse les images dans la webcam virtuelle.
 
-**Le protocole** : messages `[type u8][longueur u32 big-endian][données]`. iPhone → PC : vidéo (`0x01`, Annex B avec SPS/PPS à chaque image clé), état JSON (`0x02`). PC → iPhone : réglages JSON (`0x10`), image d'arrière-plan (`0x11`), demande d'image clé (`0x12`). En cas de congestion Wi-Fi, l'iPhone jette les images intermédiaires plutôt que d'accumuler du retard, puis renvoie une image clé.
+**Le chiffrement** (`src/secure.js`, `ios/AirCam/Secure.swift`) : à chaque connexion, le PC et l'iPhone échangent une clé X25519 éphémère, en dérivent deux clés AES-256 (HKDF-SHA256), puis chaque message voyage dans un enregistrement AES-256-GCM `[longueur u32][chiffré + tag]` avec un compteur par sens (anti-rejeu). Pas de mot de passe : le flux est illisible pour qui l'écoute, mais aucun appairage n'empêche un autre appareil du réseau de se connecter. Le CI vérifie que CryptoKit et Node produisent les mêmes octets.
+
+**Le protocole** : messages `[type u8][longueur u32 big-endian][données]`. iPhone → PC : vidéo (`0x01`, Annex B avec SPS/PPS à chaque image clé), état JSON (`0x02`), visages détectés (`0x03`). PC → iPhone : réglages JSON (`0x10`), image d'arrière-plan (`0x11`), demande d'image clé (`0x12`), point de mise au point (`0x13`). En cas de congestion Wi-Fi, l'iPhone jette les images intermédiaires plutôt que d'accumuler du retard, puis renvoie une image clé.
 
 **La webcam virtuelle** est [softcam](https://github.com/tshino/softcam) (MIT), un filtre DirectShow. Le workflow **softcam** la compile et la renomme « AirCam » (nom, CLSID et mémoire partagée propres, pour ne pas entrer en conflit avec d'autres apps basées sur softcam). Elle est en 64 bits : les rares applications 32 bits ne la voient pas.
 

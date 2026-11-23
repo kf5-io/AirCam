@@ -199,6 +199,16 @@ ipcMain.handle('lut-import', async () => {
   return added;
 });
 
+// ───────── profiles: <userData>/profiles.json (can hold layer images, too big for localStorage) ─────────
+const profilesFile = () => path.join(app.getPath('userData'), 'profiles.json');
+ipcMain.handle('profiles-read', () => { try { return JSON.parse(fs.readFileSync(profilesFile(), 'utf8')); } catch { return []; } });
+ipcMain.handle('profiles-write', (_e, list) => {
+  if (!Array.isArray(list)) throw new Error('bad profiles');
+  const tmp = profilesFile() + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(list));
+  fs.renameSync(tmp, profilesFile()); // atomic: a crash mid-write never leaves a broken file
+});
+
 ipcMain.handle('dll-path', () => dllPath());
 ipcMain.handle('vcam-registered', () => vcamRegistered());
 ipcMain.handle('vcam-register', (_e, on) => vcamRegister(!!on));

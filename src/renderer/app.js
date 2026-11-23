@@ -475,6 +475,7 @@ function vCam() {
 
   const off = c ? '' : ' off';
   const panel = h('div', { class: 'panel' },
+    vProfiles(),
     h('div', { class: 'box' + off }, h('h3', {}, 'Caméra'),
       seg(Object.entries(CAMS).filter(([k]) => cams.includes(k)).map(([k, v]) => [k, v.replace('Ultra grand-angle', 'Ultra GA').replace('Téléobjectif', 'Télé')]),
         settings.camera, v => { set('camera', v); if (v === 'front' && settings.torch) set('torch', false); })),
@@ -557,6 +558,65 @@ function vAdjust() {
           userList.map(f => lutCard('user:' + f, f.replace(/\.cube$/i, ''), f))),
         slider('Intensité', 0, 100, 1, look.intensity, v => `${v} %`, v => { look.intensity = v; fresh(); }),
         h('small', { class: 'muted' }, settings.log ? 'En Apple Log, choisis une LUT prévue pour l’Apple Log (ex. Apple Log → Rec.709, The One LUT).' : 'Fichiers .cube 3D (Resolve, Blackmagic Camera, Lightroom…).'))));
+}
+
+// ───────── profiles: camera + adjustments + LUT + layers saved together ─────────
+let profiles = [];
+let activeProfile = store.get('profile', null);
+const snapshot = name => ({
+  name,
+  settings: { ...settings, torch: false },
+  ui: { ...ui }, adj: structuredClone(adj), look: { ...look },
+  layers: layers.map(({ box, ...l }) => l), bgImage,
+});
+async function saveProfiles() {
+  try { await aircam.profiles.write(profiles); } catch { toast('Impossible d’enregistrer les profils'); }
+}
+async function saveProfile(name) {
+  name = name.trim().slice(0, 40);
+  if (!name) return;
+  const i = profiles.findIndex(p => p.name === name);
+  if (i >= 0) profiles[i] = snapshot(name); else profiles.push(snapshot(name));
+  activeProfile = name; store.set('profile', name);
+  await saveProfiles();
+  toast(`Profil « ${name} » enregistré`);
+  render();
+}
+function applyProfile(p) {
+  const aspectChanged = (p.ui?.aspect || '16:9') !== ui.aspect, outChanged = p.ui?.output !== ui.output;
+  settings = { ...DEFAULTS, ...p.settings, torch: false };
+  ui = { ...ui, ...p.ui };
+  adj = Object.fromEntries(Object.keys(ADJ).map(k => [k, { on: false, v: 0, ...p.adj?.[k] }]));
+  look = { lut: null, intensity: 100, ...p.look };
+  layers = structuredClone(p.layers || []);
+  bgImage = p.bgImage ?? null;
+  imgCache.clear(); selId = null; crop = null;
+  store.set('settings', settings); store.set('ui', ui); store.set('adj', adj); store.set('look', look); store.set('layers', layers);
+  try { if (bgImage) store.set('bgImage', bgImage); else localStorage.removeItem('aircam.bgImage'); } catch {}
+  activeProfile = p.name; store.set('profile', p.name);
+  aircam.control(settings);
+  if (settings.background === 'replace') sendBg();
+  if (aspectChanged || outChanged) openVcam(); else redraw();
+  if (look.lut?.startsWith('user:') && !luts.has(look.lut)) toast('La LUT de ce profil n’est plus dans la bibliothèque');
+  toast(`Profil « ${p.name} »`);
+  render();
+}
+function vProfiles() {
+  const input = h('input', { class: 'field', placeholder: 'Nom du profil (ex. Visio, Stream)', maxlength: 40 });
+  const save = () => saveProfile(input.value || activeProfile || '');
+  input.onkeydown = e => { if (e.key === 'Enter') save(); };
+  return h('div', { class: 'box' }, h('h3', {}, 'Profils'),
+    profiles.length ? h('div', { class: 'chips' }, profiles.map(p => h('div', { class: 'pchip' + (p.name === activeProfile ? ' on' : ''), title: `Appliquer « ${p.name} »`, onclick: () => applyProfile(p) },
+      h('span', {}, p.name),
+      h('button', { class: 'rm', 'aria-label': `Supprimer ${p.name}`, onclick: async e => {
+        e.stopPropagation();
+        profiles = profiles.filter(x => x !== p);
+        if (activeProfile === p.name) { activeProfile = null; store.set('profile', null); }
+        await saveProfiles(); render();
+      } }, icon('x')))))
+      : h('small', { class: 'muted' }, 'Enregistre caméra, ajustements, LUT et calques sous un nom, puis passe de l’un à l’autre en un clic.'),
+    h('div', { class: 'inline' }, input, h('button', { class: 'btn small', onclick: save }, 'Enregistrer')),
+    activeProfile && profiles.some(p => p.name === activeProfile) && h('small', { class: 'muted' }, `Entrée sans nom : met à jour « ${activeProfile} ».`));
 }
 
 // Layers page: same preview (drag layers on it) + the layer editor.
@@ -668,4 +728,5 @@ async function installVcam(on = true) {
 render();
 openVcam();
 loadUserLuts().then(() => { if (view === 'adjust') render(); });
+aircam.profiles.read().then(p => { profiles = Array.isArray(p) ? p : []; if (view === 'cam') render(); });
 aircam.vcam.registered().then(r => { vcamInstalled = r; render(); });
