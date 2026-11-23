@@ -22,6 +22,12 @@ const ICONS = { // static, trusted markup
   usb: '<path d="M12 21V5M12 3l-2.5 3h5zM12 15l-4-3V9.5M12 13l4-2.5V8"/><circle cx="12" cy="20" r="1.4" class="fill"/><rect x="14.8" y="6.4" width="2.4" height="2.4"/><circle cx="8" cy="8.5" r="1.2"/>',
   wifi: '<path d="M2.5 9a14 14 0 0 1 19 0M5.5 12.5a9.5 9.5 0 0 1 13 0M8.7 15.8a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19" r="1.3" class="fill"/>',
   image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
+  text: '<path d="M5 6V4.5h14V6M12 4.5v15M9 19.5h6"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeoff: '<path d="M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.9 3.6M6.4 6.9A15.6 15.6 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  trash: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/>',
 };
 const icon = n => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'i'); s.innerHTML = ICONS[n]; return s; };
 const store = {
@@ -81,7 +87,120 @@ function draw(frame) {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   frame.close();
   lastFrame = performance.now();
+  drawLayers();
   pushVcam();
+}
+
+// ───────── layers: logos / watermarks / text drawn on top of the output (Camo-style) ─────────
+// x, y = center as a fraction of the frame; size = width fraction (image) or height fraction (text).
+let layers = store.get('layers', []);
+let selId = null;
+const imgCache = new Map();
+const saveLayers = debounce(() => store.set('layers', layers), 300);
+const redraw = () => { if (!live()) placeholder(); else placeSel(); }; // live video redraws on the next frame
+function imgOf(l) {
+  let img = imgCache.get(l.id);
+  if (!img) { img = new Image(); img.onload = redraw; img.src = l.src; imgCache.set(l.id, img); }
+  return img;
+}
+function drawLayers() {
+  const W = canvas.width, H = canvas.height;
+  for (const l of layers) {
+    l.box = null;
+    if (!l.visible) continue;
+    ctx.globalAlpha = l.opacity;
+    if (l.type === 'image') {
+      const img = imgOf(l);
+      if (!img.naturalWidth) continue;
+      const w = l.size * W, hh = w * img.naturalHeight / img.naturalWidth, x = l.x * W - w / 2, y = l.y * H - hh / 2;
+      ctx.drawImage(img, x, y, w, hh);
+      l.box = [x, y, w, hh];
+    } else {
+      const fs = l.size * H;
+      ctx.font = `600 ${fs}px "Segoe UI Variable Display", "Segoe UI"`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const pad = l.bg ? fs * .5 : 0, w = ctx.measureText(l.text || ' ').width + pad * 2, hh = fs * 1.55;
+      const x = l.x * W - w / 2, y = l.y * H - hh / 2;
+      if (l.bg) { ctx.fillStyle = 'rgba(10,10,14,.62)'; ctx.beginPath(); ctx.roundRect(x, y, w, hh, hh * .28); ctx.fill(); }
+      ctx.fillStyle = l.color;
+      ctx.fillText(l.text, x + pad, l.y * H);
+      l.box = [x, y, w, hh];
+    }
+  }
+  ctx.globalAlpha = 1; ctx.textBaseline = 'alphabetic';
+  placeSel();
+}
+// Selection outline: a DOM element over the preview, so it never reaches the virtual camera.
+const selBox = h('div', { class: 'selbox', hidden: true });
+function placeSel() {
+  const b = layers.find(l => l.id === selId)?.box;
+  selBox.hidden = !b;
+  if (!b) return;
+  const W = canvas.width, H = canvas.height;
+  Object.assign(selBox.style, { left: `${b[0] / W * 100}%`, top: `${b[1] / H * 100}%`, width: `${b[2] / W * 100}%`, height: `${b[3] / H * 100}%` });
+}
+const SIZE = { image: [.03, 1], text: [.02, .2] };
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+function resize(l, k) { l.size = clamp(l.size * k, ...SIZE[l.type]); saveLayers(); redraw(); }
+// Snap to a corner / center, keeping a small margin from the edges.
+function place(l, pos) {
+  const b = l.box, W = canvas.width, H = canvas.height, m = .035;
+  const hw = b ? b[2] / W / 2 : .1, hh = b ? b[3] / H / 2 : .05;
+  l.x = pos[1] === 'l' ? m + hw : pos[1] === 'r' ? 1 - m - hw : .5;
+  l.y = pos[0] === 't' ? m + hh : pos[0] === 'b' ? 1 - m - hh : .5;
+  saveLayers(); redraw();
+}
+function addLayer(l) {
+  layers.push({ id: crypto.randomUUID(), opacity: 1, visible: true, ...l });
+  selId = layers.at(-1).id;
+  saveLayers(); redraw(); renderLayersBox();
+}
+function addImageLayer() {
+  const input = h('input', { type: 'file', accept: 'image/*' });
+  input.onchange = async () => {
+    const file = input.files[0];
+    const img = file && await createImageBitmap(file).catch(() => null);
+    if (!img) return file && toast('Image illisible');
+    const k = Math.min(1, 1024 / Math.max(img.width, img.height)); // keeps localStorage small
+    const c = h('canvas', { width: Math.round(img.width * k), height: Math.round(img.height * k) });
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    addLayer({ type: 'image', name: file.name, src: c.toDataURL('image/webp', .92), x: .84, y: .17, size: .2 }); // webp keeps transparency
+  };
+  input.click();
+}
+const addTextLayer = () => addLayer({ type: 'text', text: 'Mon texte', color: '#ffffff', bg: true, x: .5, y: .87, size: .055 });
+
+// Drag on the preview to move, wheel to resize.
+let drag = null;
+function canvasPt(e) {
+  const r = canvas.getBoundingClientRect();
+  return [(e.clientX - r.left) / r.width * canvas.width, (e.clientY - r.top) / r.height * canvas.height];
+}
+const hit = ([px, py]) => [...layers].reverse().find(l => l.box && px >= l.box[0] && px <= l.box[0] + l.box[2] && py >= l.box[1] && py <= l.box[1] + l.box[3]);
+function bindStage(stage) {
+  stage.onpointerdown = e => {
+    const p = canvasPt(e), l = hit(p);
+    const was = selId;
+    selId = l?.id ?? null;
+    if (l) { drag = { l, dx: p[0] / canvas.width - l.x, dy: p[1] / canvas.height - l.y }; stage.setPointerCapture(e.pointerId); }
+    placeSel();
+    if (was !== selId) renderLayersBox();
+  };
+  stage.onpointermove = e => {
+    const p = canvasPt(e);
+    if (!drag) { stage.style.cursor = hit(p) ? 'move' : ''; return; }
+    drag.l.x = clamp(p[0] / canvas.width - drag.dx, 0, 1);
+    drag.l.y = clamp(p[1] / canvas.height - drag.dy, 0, 1);
+    redraw();
+  };
+  stage.onpointerup = () => { if (drag) { drag = null; saveLayers(); } };
+  stage.onwheel = e => {
+    const l = hit(canvasPt(e)) || layers.find(x => x.id === selId);
+    if (!l) return;
+    e.preventDefault();
+    resize(l, e.deltaY < 0 ? 1.06 : 1 / 1.06);
+    if (l.id === selId) renderLayersBox();
+  };
 }
 
 const logo = new Image();
@@ -97,6 +216,7 @@ function placeholder() {
   ctx.fillText('AirCam', W / 2, H * .40 + 150 * s);
   ctx.fillStyle = '#9a9aa6'; ctx.font = `${44 * s}px "Segoe UI Variable Text", "Segoe UI"`;
   ctx.fillText(conn.state === 'connected' ? 'Connexion à la caméra…' : 'En attente de l’iPhone', W / 2, H * .40 + 225 * s);
+  drawLayers();
   pushVcam();
 }
 logo.onload = () => { if (!live()) placeholder(); };
@@ -226,7 +346,8 @@ function vCam() {
   updateChip();
   const cams = status?.cameras || Object.keys(CAMS);
 
-  const stage = h('div', { class: 'stage' }, canvas, chip);
+  const stage = h('div', { class: 'stage' }, canvas, selBox, chip);
+  bindStage(stage);
   const vcamLine = vcamInstalled === false
     ? [h('span', { class: 'dot' }), h('span', { class: 'grow' }, 'La webcam virtuelle « AirCam » n’est pas installée.'), h('button', { class: 'btn small', onclick: installVcam }, 'Installer')]
     : [h('span', { class: 'dot ok' }), h('span', { class: 'grow' }, 'Choisis « AirCam » comme caméra dans Zoom, Teams, Discord, OBS…')];
@@ -258,8 +379,55 @@ function vCam() {
       }),
       settings.background === 'replace' && bgImage && h('div', { class: 'bgthumb', style: `background-image:url("${bgImage}")` }),
       settings.background === 'replace' && h('button', { class: 'btn small', onclick: pickBg }, icon('image'), 'Changer d’image')));
+  layersBox = vLayers();
+  panel.append(layersBox);
 
   return h('div', { class: 'cam' }, left, panel);
+}
+
+let layersBox = null;
+function renderLayersBox() { if (!layersBox) return; const nb = vLayers(); layersBox.replaceWith(nb); layersBox = nb; }
+const COLORS = ['#ffffff', '#000000', '#b39dff', '#7c5cff', '#ff5c8a', '#ffd166', '#3ddc84', '#4cc9f0'];
+function vLayers() {
+  const sel = layers.find(l => l.id === selId);
+  const upd = () => { saveLayers(); redraw(); };
+  return h('div', { class: 'box' }, h('h3', {}, 'Calques'),
+    h('div', { class: 'btns' },
+      h('button', { class: 'btn small', onclick: addImageLayer }, icon('image'), 'Image'),
+      h('button', { class: 'btn small', onclick: addTextLayer }, icon('text'), 'Texte')),
+    layers.length
+      ? h('div', { class: 'layers' }, [...layers].reverse().map(l => h('div', { class: 'layer' + (l.id === selId ? ' on' : ''), onclick: () => { selId = l.id; placeSel(); renderLayersBox(); } },
+        h('button', { class: 'eye', 'aria-label': l.visible ? 'Masquer' : 'Afficher', onclick: e => { e.stopPropagation(); l.visible = !l.visible; upd(); renderLayersBox(); } }, icon(l.visible ? 'eye' : 'eyeoff')),
+        l.type === 'image' ? h('span', { class: 'lthumb', style: `background-image:url("${l.src}")` }) : h('span', { class: 'lthumb t' }, 'T'),
+        h('span', { class: 'lname' + (l.visible ? '' : ' muted') }, l.type === 'text' ? l.text || 'Texte' : l.name))))
+      : h('small', { class: 'muted' }, 'Ajoute un logo, un filigrane ou un texte par-dessus la caméra. Glisse-les sur l’aperçu pour les placer, molette pour la taille.'),
+    sel && h('div', { class: 'editor' },
+      sel.type === 'text' && h('input', { class: 'field', value: sel.text, maxlength: 120, oninput: e => { sel.text = e.target.value; upd(); }, onchange: renderLayersBox }),
+      sel.type === 'text' && h('div', { class: 'swatches' }, COLORS.map(c =>
+        h('button', { class: 'sw' + (sel.color === c ? ' on' : ''), style: `background:${c}`, 'aria-label': `Couleur ${c}`, onclick: () => { sel.color = c; upd(); renderLayersBox(); } }))),
+      sel.type === 'text' && toggle('Fond', sel.bg, on => { sel.bg = on; upd(); }),
+      slider('Taille', ...SIZE[sel.type], .001, sel.size, v => `${Math.round(v * 100)} %`, v => { sel.size = v; upd(); }),
+      slider('Opacité', .05, 1, .01, sel.opacity, v => `${Math.round(v * 100)} %`, v => { sel.opacity = v; upd(); }),
+      h('div', { class: 'row' }, h('span', {}, 'Position'), h('div', { class: 'seg pos' }, [['tl', 'en haut à gauche'], ['tr', 'en haut à droite'], ['cc', 'au centre'], ['bl', 'en bas à gauche'], ['br', 'en bas à droite']].map(([p, label]) =>
+        h('button', { 'aria-label': `Placer ${label}`, title: `Placer ${label}`, onclick: () => place(sel, p) }, posIcon(p))))),
+      h('div', { class: 'btns' },
+        h('button', { class: 'btn small', 'aria-label': 'Monter', onclick: () => move(sel, 1) }, icon('up')),
+        h('button', { class: 'btn small', 'aria-label': 'Descendre', onclick: () => move(sel, -1) }, icon('down')),
+        h('button', { class: 'btn small danger', onclick: () => { layers = layers.filter(l => l !== sel); imgCache.delete(sel.id); selId = null; upd(); renderLayersBox(); } }, icon('trash'), 'Supprimer'))));
+}
+// Mini frame with a dot where the layer goes.
+function posIcon(p) {
+  const s = icon('image');
+  const cx = p[1] === 'l' ? 7.5 : p[1] === 'r' ? 16.5 : 12, cy = p[0] === 't' ? 8.5 : p[0] === 'b' ? 15.5 : 12;
+  s.innerHTML = `<rect x="3" y="5" width="18" height="14" rx="2.5"/><circle class="fill" cx="${cx}" cy="${cy}" r="2.2"/>`;
+  return s;
+}
+// Reorder: +1 = towards the front (drawn later).
+function move(l, dir) {
+  const i = layers.indexOf(l), j = i + dir;
+  if (j < 0 || j >= layers.length) return;
+  [layers[i], layers[j]] = [layers[j], layers[i]];
+  saveLayers(); redraw(); renderLayersBox();
 }
 
 function vDevices() {
