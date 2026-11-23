@@ -1,0 +1,40 @@
+# Builds the iPhone app as an unsigned IPA (install it with Sideloadly / AltStore, which sign it with your Apple ID).
+name: ios
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['ios/**', '.github/workflows/ios.yml']
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install xcodegen
+      - run: xcodegen generate
+        working-directory: ios
+      - name: Build
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild -project AirCam.xcodeproj -scheme AirCam -configuration Release -sdk iphoneos \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build | tail -40
+      - name: Package IPA
+        working-directory: ios
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/AirCam.app Payload/
+          zip -qry AirCam.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with: { name: AirCam-ipa, path: ios/AirCam.ipa }
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --title "AirCam $GITHUB_REF_NAME" --generate-notes
+          gh release upload "$GITHUB_REF_NAME" ios/AirCam.ipa -R "$GITHUB_REPOSITORY" --clobber

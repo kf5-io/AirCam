@@ -1,0 +1,34 @@
+# xcodegen spec (the .xcodeproj is generated, not committed). CI: .github/workflows/ios.yml
+name: AirCam
+options:
+  bundleIdPrefix: io.kf5
+  deploymentTarget: { iOS: "16.0" }
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  AirCam:
+    type: application
+    platform: iOS
+    sources: [AirCam]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.kf5.aircam
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        INFOPLIST_FILE: AirCam/Info.plist
+    info:
+      path: AirCam/Info.plist
+      properties:
+        CFBundleDisplayName: AirCam
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait]
+        NSCameraUsageDescription: AirCam envoie l'image de la caméra à ton PC pour l'utiliser comme webcam.
+        NSLocalNetworkUsageDescription: AirCam a besoin du réseau local pour que ton PC trouve l'iPhone et reçoive la vidéo.
+        NSBonjourServices: [_aircam._tcp]
