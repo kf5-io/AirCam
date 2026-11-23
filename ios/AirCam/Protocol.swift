@@ -6,6 +6,7 @@ enum Msg: UInt8 {
     case status = 0x02     // iPhone → PC: JSON Status
     case control = 0x10    // PC → iPhone: JSON Settings (full object)
     case background = 0x11 // PC → iPhone: JPEG/PNG image for background replacement
+    case keyframe = 0x12   // PC → iPhone: decoder lost sync, send a keyframe
 }
 
 let aircamPort: UInt16 = 47800

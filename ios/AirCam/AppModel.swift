@@ -76,6 +76,8 @@ final class AppModel: ObservableObject {
         case .background:
             let img = CIImage(data: data)
             camera.queue.async { [weak self] in self?.segmenter.background = img }
+        case .keyframe:
+            camera.queue.async { [weak self] in self?.encoder.requestKeyframe() }
         default: break
         }
     }
