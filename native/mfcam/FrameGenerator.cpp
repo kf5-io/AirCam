@@ -112,10 +112,10 @@ HRESULT FrameGenerator::Generate(IMFSample* sample, REFGUID format, IMFSample** 
 	wil::com_ptr_nothrow<IMFMediaBuffer> mediaBuffer;
 	RETURN_IF_FAILED(sample->GetBufferByIndex(0, &mediaBuffer));
 	wil::com_ptr_nothrow<IMF2DBuffer2> buffer2D;
-	BYTE* scanline;
-	LONG pitch;
-	BYTE* start;
-	DWORD length;
+	BYTE* scanline = nullptr;
+	LONG pitch = 0;
+	BYTE* start = nullptr;
+	DWORD length = 0;
 	RETURN_IF_FAILED(mediaBuffer->QueryInterface(IID_PPV_ARGS(&buffer2D)));
 	RETURN_IF_FAILED(buffer2D->Lock2DSize(MF2DBuffer_LockFlags_Write, &scanline, &pitch, &start, &length));
 
@@ -123,8 +123,8 @@ HRESULT FrameGenerator::Generate(IMFSample* sample, REFGUID format, IMFSample** 
 	auto hr = _bitmap->Lock(nullptr, WICBitmapLockRead, &lock);
 	if (SUCCEEDED(hr))
 	{
-		UINT w, h, wicStride, wicSize;
-		WICInProcPointer wicPointer;
+		UINT w = 0, h = 0, wicStride = 0, wicSize = 0;
+		WICInProcPointer wicPointer = nullptr;
 		hr = lock->GetSize(&w, &h);
 		if (SUCCEEDED(hr)) hr = lock->GetStride(&wicStride);
 		if (SUCCEEDED(hr)) hr = lock->GetDataPointer(&wicSize, &wicPointer);
