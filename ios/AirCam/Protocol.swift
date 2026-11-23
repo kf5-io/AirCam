@@ -21,6 +21,10 @@ struct Settings: Codable, Equatable {
     var exposure = 0.0         // EV bias, -2...2
     var focus = "auto"         // auto | locked
     var background = "none"    // none | blur | replace
+    var whiteBalance = "auto"  // auto | manual
+    var temperature = 5500.0   // Kelvin, manual white balance
+    var tint = 0.0             // -150...150, manual white balance
+    var log = false            // Apple Log capture (iPhone 15 Pro and later); the PC applies the LUT
 
     var width: Int32 { resolution == "4k" ? 3840 : resolution == "720p" ? 1280 : 1920 }
     var bitrate: Int {
@@ -40,6 +44,7 @@ struct Status: Codable {
     var height: Int
     var fps: Int
     var battery: Int // percent, -1 unknown
+    var supportsLog: Bool // current camera can capture in Apple Log
 }
 
 func frame(_ type: Msg, _ payload: Data) -> Data {

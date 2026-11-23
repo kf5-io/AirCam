@@ -29,6 +29,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         output.alwaysDiscardsLateVideoFrames = true
         output.setSampleBufferDelegate(self, queue: queue)
         session.sessionPreset = .inputPriority // we pick device formats ourselves (needed for 60 fps / 4K)
+        session.automaticallyConfiguresCaptureDeviceWideColor = false // we set the color space (Apple Log) ourselves
         if session.canAddOutput(output) { session.addOutput(output) }
     }
 
@@ -55,8 +56,12 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
         do {
             try dev.lockForConfiguration()
-            let (format, fps) = Self.pickFormat(dev, width: s.width, fps: s.fps)
+            let log = s.log && Self.supportsLog(dev)
+            let (format, fps) = Self.pickFormat(dev, width: s.width, fps: s.fps, log: log)
             if let format { dev.activeFormat = format }
+            if #available(iOS 17.0, *), log, dev.activeFormat.supportedColorSpaces.contains(.appleLog) { dev.activeColorSpace = .appleLog }
+            else if dev.activeFormat.supportedColorSpaces.contains(.sRGB) { dev.activeColorSpace = .sRGB } // unsupported value would throw
+            s.log = log
             dev.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
             dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
             activeFps = fps
@@ -65,6 +70,15 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
             dev.setExposureTargetBias(max(dev.minExposureTargetBias, min(bias, dev.maxExposureTargetBias)))
             if s.focus == "locked", dev.isFocusModeSupported(.locked) { dev.focusMode = .locked }
             else if dev.isFocusModeSupported(.continuousAutoFocus) { dev.focusMode = .continuousAutoFocus }
+            if s.whiteBalance == "manual", dev.isLockingWhiteBalanceWithCustomDeviceGainsSupported {
+                let tt = AVCaptureDevice.WhiteBalanceTemperatureAndTintValues(temperature: Float(s.temperature), tint: Float(s.tint))
+                var g = dev.deviceWhiteBalanceGains(for: tt)
+                let mx = dev.maxWhiteBalanceGain
+                g.redGain = max(1, min(g.redGain, mx)); g.greenGain = max(1, min(g.greenGain, mx)); g.blueGain = max(1, min(g.blueGain, mx))
+                dev.setWhiteBalanceModeLocked(with: g, completionHandler: nil)
+            } else if dev.isWhiteBalanceModeSupported(.continuousAutoWhiteBalance) {
+                dev.whiteBalanceMode = .continuousAutoWhiteBalance
+            }
             if dev.hasTorch, dev.isTorchAvailable {
                 if s.torch { try? dev.setTorchModeOn(level: 1) } else { dev.torchMode = .off }
             }
@@ -82,13 +96,21 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
     static func maxZoom(_ dev: AVCaptureDevice) -> CGFloat { min(dev.maxAvailableVideoZoomFactor, 10) }
 
+    static func supportsLog(_ dev: AVCaptureDevice) -> Bool {
+        guard #available(iOS 17.0, *) else { return false }
+        return dev.formats.contains { $0.supportedColorSpaces.contains(.appleLog) }
+    }
+
     /// Best format at `width` (16:9, NV12 full range) supporting `fps`; falls back to 30 fps, then any 16:9 width.
-    static func pickFormat(_ dev: AVCaptureDevice, width: Int32, fps: Int) -> (AVCaptureDevice.Format?, Int) {
+    /// Apple Log formats are 10-bit; the video output still delivers 8-bit NV12 (log values preserved).
+    static func pickFormat(_ dev: AVCaptureDevice, width: Int32, fps: Int, log: Bool = false) -> (AVCaptureDevice.Format?, Int) {
         func find(_ w: Int32, _ f: Int) -> AVCaptureDevice.Format? {
             dev.formats.first { fmt in
                 let d = CMVideoFormatDescriptionGetDimensions(fmt.formatDescription)
-                return d.width == w && d.height * 16 == d.width * 9
-                    && CMFormatDescriptionGetMediaSubType(fmt.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                let kind: Bool
+                if #available(iOS 17.0, *), log { kind = fmt.supportedColorSpaces.contains(.appleLog) }
+                else { kind = CMFormatDescriptionGetMediaSubType(fmt.formatDescription) == kCVPixelFormatType_420YpCbCr8BiPlanarFullRange }
+                return d.width == w && d.height * 16 == d.width * 9 && kind
                     && fmt.videoSupportedFrameRateRanges.contains { $0.maxFrameRate >= Double(f) }
             }
         }

@@ -37,6 +37,12 @@ contextBridge.exposeInMainWorld('aircam', {
   control: settings => ipcRenderer.send('control', settings),
   keyframe: () => ipcRenderer.send('keyframe'),
   background: bytes => ipcRenderer.send('background', bytes),
+  luts: {
+    list: () => ipcRenderer.invoke('lut-list'),
+    read: name => ipcRenderer.invoke('lut-read', name),
+    remove: name => ipcRenderer.invoke('lut-delete', name),
+    import: () => ipcRenderer.invoke('lut-import'),
+  },
   vcam: {
     registered: () => ipcRenderer.invoke('vcam-registered'),
     register: on => ipcRenderer.invoke('vcam-register', on),

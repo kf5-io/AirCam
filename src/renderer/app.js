@@ -24,6 +24,10 @@ const ICONS = { // static, trusted markup
   image: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-9 9"/>',
   text: '<path d="M5 6V4.5h14V6M12 4.5v15M9 19.5h6"/>',
   layers: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  adjust: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/><path class="fill" d="M12 3.5a8.5 8.5 0 0 1 0 17z"/>',
+  reset: '<path d="M4 12a8 8 0 1 0 2.6-5.9L4 8.5"/><path d="M4 4v4.5h4.5"/>',
+  plus: '<path d="M12 5v14M5 12h14"/>',
+  x: '<path d="M6 6l12 12M18 6L6 18"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff: '<path d="M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.9 3.6M6.4 6.9A15.6 15.6 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
   up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
@@ -41,7 +45,8 @@ const debounce = (f, ms) => { let t; return (...a) => { clearTimeout(t); t = set
 
 // ───────── state ─────────
 // `settings` is sent as-is to the phone (ios/AirCam/Protocol.swift Settings); PC is the source of truth.
-const DEFAULTS = { camera: 'back', resolution: '1080p', fps: 30, torch: false, zoom: 1, exposure: 0, focus: 'auto', background: 'none' };
+const DEFAULTS = { camera: 'back', resolution: '1080p', fps: 30, torch: false, zoom: 1, exposure: 0, focus: 'auto', background: 'none',
+  whiteBalance: 'auto', temperature: 5500, tint: 0, log: false };
 let settings = { ...DEFAULTS, ...store.get('settings', {}), torch: false };
 let ui = { mirror: false, rotate: false, output: '1080p', ...store.get('ui', {}) }; // PC-side image options
 let bgImage = store.get('bgImage', null); // data URL (JPEG ≤ 1920 px) for background replacement
@@ -84,12 +89,96 @@ function draw(frame) {
   if (ui.rotate) { sx = -sx; sy = -1; } // 180° = flip both axes
   ctx.setTransform(sx, 0, 0, sy, sx < 0 ? W : 0, sy < 0 ? H : 0);
   const fw = frame.displayWidth, fh = frame.displayHeight, k = Math.max(W / fw, H / fh); // cover
-  ctx.drawImage(frame, (W - fw * k) / 2, (H - fh * k) / 2, fw * k, fh * k);
+  const src = grading() ? grader.render(frame, gradeParams()) : frame;
+  ctx.drawImage(src, (W - fw * k) / 2, (H - fh * k) / 2, fw * k, fh * k);
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   frame.close();
   lastFrame = performance.now();
   drawLayers();
   pushVcam();
+}
+
+// ───────── color: adjustments + LUTs (GPU, src/renderer/grade.js) ─────────
+const grader = (() => { try { return Grade; } catch { return null; } })(); // null without WebGL2
+// Sliders are -100…100 (0 = neutral); each one only applies when its switch is on.
+const ADJ = {
+  brightness: ['Luminosité', 'linear-gradient(90deg,#111,#888,#fff)'],
+  hue: ['Teinte', 'linear-gradient(90deg,#4b6bff,#b04bff,#ff4b6b,#ffb84b,#6bff4b,#4bd7ff)'],
+  saturation: ['Saturation', 'linear-gradient(90deg,#888,#e85d4a)'],
+  vibrance: ['Vibrance', 'linear-gradient(90deg,#777,#d9a066,#4ac0e8)'],
+  contrast: ['Contraste', 'linear-gradient(90deg,#666,#999,#000 50%,#fff 50%,#111)'],
+  gamma: ['Gamma', 'linear-gradient(90deg,#222,#d8cf7a,#222)'],
+  sharpness: ['Netteté', 'linear-gradient(90deg,#555,#999,#ddd)'],
+};
+let adj = Object.fromEntries(Object.keys(ADJ).map(k => [k, { on: false, v: 0, ...store.get('adj', {})[k] }]));
+let look = { lut: null, intensity: 100, ...store.get('look', {}) }; // lut: 'look:warm' | 'user:<file.cube>' | null
+const saveColor = debounce(() => { store.set('adj', adj); store.set('look', look); }, 300);
+const LUT_LOG = 'builtin:applelog';
+const luts = new Map(); // id → { size, data }
+for (const [k, [, fn]] of Object.entries(LOOKS)) luts.set('look:' + k, makeLut(33, fn));
+luts.set(LUT_LOG, makeLut(33, appleLogToRec709));
+let userLuts = []; // file names in <userData>/luts
+
+// In Apple Log with no LUT picked, the built-in Log → Rec.709 conversion is mandatory (log footage looks flat/grey).
+const activeLutId = () => look.lut && luts.has(look.lut) ? look.lut : settings.log && status?.settings?.log ? LUT_LOG : null;
+let uploaded;
+function grading() {
+  if (!grader) return false;
+  const id = activeLutId();
+  if (id !== uploaded) { grader.setLut(luts.get(id) || null); uploaded = id; }
+  return !!id || Object.values(adj).some(a => a.on && a.v);
+}
+function gradeParams() {
+  const v = k => adj[k].on ? adj[k].v / 100 : 0;
+  const s = v('sharpness');
+  return {
+    lutMix: activeLutId() === LUT_LOG && !look.lut ? 1 : look.intensity / 100,
+    bri: v('brightness') * .25, hue: v('hue') * Math.PI, sat: 1 + v('saturation'), vib: v('vibrance') * .8,
+    con: 1 + v('contrast') * .6, gam: 2 ** (-v('gamma') * .8), sharp: s > 0 ? s * 1.5 : s * .8,
+  };
+}
+async function loadUserLuts() {
+  userLuts = await aircam.luts.list();
+  await Promise.all(userLuts.filter(f => !luts.has('user:' + f)).map(async f => {
+    try { luts.set('user:' + f, parseCube(await aircam.luts.read(f))); } catch { luts.delete('user:' + f); }
+  }));
+}
+async function importLuts() {
+  const added = await aircam.luts.import();
+  for (const f of added) {
+    try { luts.set('user:' + f, parseCube(await aircam.luts.read(f))); look.lut = 'user:' + f; }
+    catch (e) { await aircam.luts.remove(f); toast(`${f} : ${e.message}`); }
+  }
+  await loadUserLuts();
+  saveColor(); redraw(); render();
+}
+
+// Thumbnails: a small synthetic test card (hues, skin, grey ramp) run through the LUT on the CPU.
+const thumbCache = new Map();
+function lutThumb(id) {
+  const log = settings.log && id !== null;
+  const key = id + (log ? ':log' : '');
+  if (thumbCache.has(key)) return thumbCache.get(key);
+  const W = 96, H = 54, c = h('canvas', { width: W, height: H }), x = c.getContext('2d');
+  const g = x.createLinearGradient(0, 0, W, 0);
+  ['#e8403a', '#f2b33d', '#5fbf4a', '#3ab0d9', '#4a5ce8', '#c04ad9', '#e8403a'].forEach((col, i, a) => g.addColorStop(i / (a.length - 1), col));
+  x.fillStyle = g; x.fillRect(0, 0, W, H * .62);
+  const v = x.createLinearGradient(0, 0, 0, H * .62); v.addColorStop(0, 'rgba(255,255,255,.35)'); v.addColorStop(1, 'rgba(0,0,0,.45)');
+  x.fillStyle = v; x.fillRect(0, 0, W, H * .62);
+  x.fillStyle = '#d9a184'; x.fillRect(W * .66, H * .62, W * .34, H * .38); // skin tone
+  const r = x.createLinearGradient(0, 0, W * .66, 0); r.addColorStop(0, '#000'); r.addColorStop(1, '#fff');
+  x.fillStyle = r; x.fillRect(0, H * .62, W * .66, H * .38);
+  const lut = luts.get(id), img = x.getImageData(0, 0, W, H), d = img.data;
+  if (lut) for (let i = 0; i < d.length; i += 4) {
+    let p = [d[i] / 255, d[i + 1] / 255, d[i + 2] / 255];
+    if (log) p = p.map(c2 => linearToAppleLog(srgbEotf(c2))); // log LUTs expect log input
+    const o = sampleLut(lut, ...p);
+    d[i] = o[0] * 255; d[i + 1] = o[1] * 255; d[i + 2] = o[2] * 255;
+  }
+  x.putImageData(img, 0, 0);
+  const url = c.toDataURL();
+  thumbCache.set(key, url);
+  return url;
 }
 
 // ───────── layers: logos / watermarks / text drawn on top of the output (Camo-style) ─────────
@@ -261,10 +350,11 @@ aircam.onState(s => {
   render();
 });
 aircam.onStatus(st => {
-  const relayout = !status || st.cameras.join() !== status.cameras.join() || st.hasTorch !== status.hasTorch || st.maxZoom !== status.maxZoom;
+  const relayout = !status || st.cameras.join() !== status.cameras.join() || st.hasTorch !== status.hasTorch || st.maxZoom !== status.maxZoom
+    || st.supportsLog !== status.supportsLog || st.settings.log !== status.settings.log;
   status = st;
   if (st.settings.camera !== settings.camera) { settings.camera = st.settings.camera; store.set('settings', settings); }
-  if (relayout && view === 'cam') render(); else updateChip();
+  if (relayout && (view === 'cam' || view === 'adjust')) render(); else updateChip();
 });
 
 function sendBg() {
@@ -292,7 +382,7 @@ function pickBg() {
 }
 
 // ───────── views ─────────
-const NAV = [['cam', 'Caméra', 'cam'], ['layers', 'Calques', 'layers'], ['devices', 'Appareils', 'phone']];
+const NAV = [['cam', 'Caméra', 'cam'], ['adjust', 'Ajustements', 'adjust'], ['layers', 'Calques', 'layers'], ['devices', 'Appareils', 'phone']];
 function renderNav() {
   $('#nav').replaceChildren(
     h('div', { class: 'logo' }, h('img', { src: '../assets/icon.png', alt: '' }), h('span', {}, 'AirCam')),
@@ -303,7 +393,7 @@ function renderNav() {
 function go(v) { view = v; render(); $('#main').scrollTop = 0; }
 function render() {
   renderNav();
-  $('#main').replaceChildren({ cam: vCam, layers: vLayersPage, devices: vDevices, settings: vSettings }[view]());
+  $('#main').replaceChildren({ cam: vCam, adjust: vAdjust, layers: vLayersPage, devices: vDevices, settings: vSettings }[view]());
 }
 
 // UI atoms
@@ -319,13 +409,14 @@ function toggle(label, value, onchange, disabled = false) {
     onclick: () => { const on = !sw.classList.contains('on'); sw.classList.toggle('on', on); sw.setAttribute('aria-checked', String(on)); onchange(on); } });
   return h('div', { class: 'row' }, h('span', {}, label), sw);
 }
-function slider(label, min, max, step, value, fmt, oninput) {
+// grad: track gradient instead of the accent fill; bare: no label column (label shown elsewhere).
+function slider(label, min, max, step, value, fmt, oninput, grad, bare) {
   const out = h('output', {}, fmt(value));
-  const r = h('input', { type: 'range', min, max, step, value, 'aria-label': label });
+  const r = h('input', { type: 'range', min, max, step, value, 'aria-label': label, class: grad ? 'grad' : null, style: grad ? `background:${grad}` : null });
   const paint = () => r.style.setProperty('--p', `${(r.value - min) / (max - min) * 100}%`);
   r.oninput = () => { paint(); out.textContent = fmt(+r.value); oninput(+r.value); };
   paint();
-  return h('div', { class: 'row' }, h('span', { style: 'flex:none;width:96px' }, label), r, out);
+  return h('div', { class: 'row' }, !bare && h('span', { style: 'flex:none;width:96px' }, label), r, out);
 }
 const box = (title, ...kids) => h('div', { class: 'box' }, h('h3', {}, title), ...kids);
 
@@ -381,6 +472,62 @@ function vCam() {
       settings.background === 'replace' && h('button', { class: 'btn small', onclick: pickBg }, icon('image'), 'Changer d’image')));
 
   return h('div', { class: 'cam' }, left, panel);
+}
+
+// Ajustements: white balance (on the phone's sensor), color adjustments + LUTs (on the PC's GPU).
+function vAdjust() {
+  chip = h('span', { class: 'chip' });
+  updateChip();
+  const stage = h('div', { class: 'stage' }, canvas, chip);
+  const manual = settings.whiteBalance === 'manual';
+  const wbRows = h('div', { class: 'stack' + (manual ? '' : ' off') },
+    slider('Température', 2500, 10000, 50, settings.temperature, v => manual ? `${v} K` : 'Auto', v => set('temperature', v), 'linear-gradient(90deg,#3d7bff,#cfe0ff,#fff1c9,#ffb03d)'),
+    slider('Teinte', -150, 150, 1, settings.tint, v => manual ? `${v > 0 ? '+' : ''}${v}` : 'Auto', v => set('tint', v), 'linear-gradient(90deg,#3ddc4a,#ccc,#e04ae0)'));
+  const fresh = () => { redraw(); saveColor(); };
+  const adjRows = Object.entries(ADJ).map(([k, [label, grad]]) => {
+    const a = adj[k];
+    const row = slider(label, -100, 100, 1, a.v, v => `${v > 0 ? '+' : ''}${v}`, v => { a.v = v; if (!a.on) { a.on = true; sw.classList.add('on'); } fresh(); }, grad, true);
+    const t = toggle(label, a.on, on => { a.on = on; fresh(); });
+    const sw = t.querySelector('.switch');
+    return h('div', { class: 'adj' }, t, row);
+  });
+  const userList = userLuts.filter(f => luts.has('user:' + f));
+  const lutCard = (id, name, removable) => h('div', { class: 'lut' + ((look.lut ?? null) === id ? ' on' : ''), title: name,
+    onclick: () => { look.lut = id; saveColor(); redraw(); render(); } },
+    h('div', { class: 'lthumb2', style: `background-image:url("${lutThumb(id)}")` }),
+    h('span', {}, name),
+    removable && h('button', { class: 'rm', 'aria-label': `Supprimer ${name}`, onclick: async e => {
+      e.stopPropagation();
+      await aircam.luts.remove(removable);
+      luts.delete(id); if (look.lut === id) look.lut = null;
+      await loadUserLuts(); saveColor(); redraw(); render();
+    } }, icon('x')));
+  const logOk = !!status?.supportsLog;
+  return h('div', { class: 'cam' },
+    h('div', {}, stage, h('div', { class: 'under' }, h('span', { class: 'grow' },
+      grader ? 'Les ajustements et la LUT sont appliqués à l’image envoyée dans la webcam « AirCam ».' : 'WebGL2 indisponible : les ajustements et LUT sont désactivés.'))),
+    h('div', { class: 'panel' },
+      h('div', { class: 'box' }, h('h3', {}, 'Balance des blancs'),
+        seg([['auto', 'Auto'], ['manual', 'Manuelle']], settings.whiteBalance, v => { set('whiteBalance', v); render(); }),
+        wbRows),
+      h('div', { class: 'box' }, h('div', { class: 'boxhead' }, h('h3', {}, 'Ajustements'),
+        h('button', { class: 'iconbtn', title: 'Tout réinitialiser', 'aria-label': 'Tout réinitialiser', onclick: () => {
+          for (const a of Object.values(adj)) { a.on = false; a.v = 0; }
+          fresh(); render();
+        } }, icon('reset'))), adjRows),
+      h('div', { class: 'box' }, h('h3', {}, 'Apple Log'),
+        toggle('Filmer en Apple Log', settings.log, on => { set('log', on); thumbCache.clear(); setTimeout(render, 400); }, !logOk && !settings.log),
+        h('small', { class: 'muted' }, logOk || settings.log
+          ? 'Image log (iPhone 15 Pro et plus) : plus de dynamique, convertie par la LUT. Sans LUT choisie, la conversion Apple Log → Rec.709 intégrée s’applique.'
+          : conn.state === 'connected' ? 'Cette caméra ne filme pas en Apple Log (iPhone 15 Pro et plus, caméras arrière).' : 'Connecte l’iPhone pour activer l’Apple Log.')),
+      h('div', { class: 'box' }, h('div', { class: 'boxhead' }, h('h3', {}, 'LUT'),
+        h('button', { class: 'btn small', onclick: importLuts }, icon('plus'), 'Importer .cube')),
+        h('div', { class: 'luts' },
+          lutCard(null, settings.log ? 'Log → Rec.709' : 'Aucune'),
+          Object.entries(LOOKS).map(([k, [name]]) => lutCard('look:' + k, name)),
+          userList.map(f => lutCard('user:' + f, f.replace(/\.cube$/i, ''), f))),
+        slider('Intensité', 0, 100, 1, look.intensity, v => `${v} %`, v => { look.intensity = v; fresh(); }),
+        h('small', { class: 'muted' }, settings.log ? 'En Apple Log, choisis une LUT prévue pour l’Apple Log (ex. Apple Log → Rec.709, The One LUT).' : 'Fichiers .cube 3D (Resolve, Blackmagic Camera, Lightroom…).'))));
 }
 
 // Layers page: same preview (drag layers on it) + the layer editor.
@@ -491,4 +638,5 @@ async function installVcam(on = true) {
 // ───────── boot ─────────
 render();
 openVcam();
+loadUserLuts().then(() => { if (view === 'adjust') render(); });
 aircam.vcam.registered().then(r => { vcamInstalled = r; render(); });

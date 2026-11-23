@@ -26,6 +26,13 @@
 - Miroir et retournement à 180° (iPhone posé dans l'autre sens)
 - Lampe torche de l'iPhone comme lumière d'appoint
 
+**Ajustements et LUT**
+- Balance des blancs automatique ou manuelle (température, teinte), réglée directement sur le capteur de l'iPhone
+- Luminosité, teinte, saturation, vibrance, contraste, gamma, netteté, chacun activable séparément
+- LUT 3D `.cube` (Resolve, Blackmagic Camera…) : bibliothèque avec miniatures, intensité réglable, 5 looks inclus (Chaud, Froid, Noir et blanc, Teal & Orange, Vintage)
+- **Apple Log** (iPhone 15 Pro et plus) : plus de dynamique, conversion Apple Log → Rec.709 intégrée ou ta propre LUT log (The One LUT…)
+- Rendu sur le GPU du PC (WebGL2), aperçu instantané
+
 **Arrière-plan**
 - Flou ou remplacement par une image, calculé sur l'iPhone (Vision, segmentation de personne) : zéro charge pour le PC
 
@@ -83,7 +90,7 @@ Garde l'app ouverte au premier plan : iOS coupe la caméra des apps en arrière-
 npm install
 npm run get-softcam   # télécharge la DLL de la webcam virtuelle dans vendor/softcam (une fois)
 npm start             # lance l'app
-npm test              # tests unitaires (protocole, parsing H.264, conversion d'image)
+npm test              # tests unitaires (protocole, parsing H.264, conversion d'image, LUT, Apple Log)
 ```
 
 Prérequis : Node.js 20+, Windows 10/11. En développement, clique sur **Installer** (Caméra ou Réglages) pour enregistrer la webcam virtuelle : Windows demande l'autorisation administrateur une fois.
@@ -100,7 +107,8 @@ src/
   usbmux.js            tunnel TCP vers l'iPhone par le câble (service Apple Mobile Device)
   renderer/
     index.html, app.js, style.css   l'interface (vanilla JS, sans framework, même design que KF Player)
-    video.js                         fonctions vidéo pures (SPS H.264, RGBA → BGR)
+    video.js                         fonctions pures : SPS H.264, RGBA → BGR, LUT .cube, courbe Apple Log, looks
+    grade.js                         étalonnage GPU (WebGL2) : netteté, LUT 3D, ajustements
 ios/
   project.yml          projet XcodeGen
   AirCam/              app SwiftUI : capture, segmentation, encodage, serveur

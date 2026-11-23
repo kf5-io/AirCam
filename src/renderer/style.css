@@ -135,6 +135,26 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .cam > div:first-child { position: sticky; top: 56px; } /* preview stays visible while the panel scrolls */
 .btn.danger:hover:not(:disabled) { background: rgba(255,92,138,.25); color: #ff5c8a; }
 
+/* adjustments page */
+.boxhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.iconbtn { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 9px; color: var(--muted); background: var(--surface); }
+.iconbtn:hover { color: var(--text); background: var(--surface-2); }
+.iconbtn svg.i { width: 18px; height: 18px; }
+.stack { display: flex; flex-direction: column; gap: 10px; }
+.adj { display: flex; flex-direction: column; gap: 2px; }
+.adj + .adj { padding-top: 8px; border-top: 1px solid rgba(255,255,255,.05); }
+input[type=range].grad { height: 6px; box-shadow: inset 0 0 0 1px rgba(0,0,0,.35); }
+.luts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.lut { position: relative; display: flex; flex-direction: column; gap: 4px; padding: 4px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; transition: background .15s, border-color .15s; }
+.lut:hover { background: var(--surface); }
+.lut.on { border-color: var(--accent); background: rgba(124,92,255,.12); }
+.lut span { font-size: 12px; color: #d6d6de; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lthumb2 { aspect-ratio: 16 / 9; border-radius: 7px; background: #111 center/cover no-repeat; }
+.lut .rm { position: absolute; top: 6px; right: 6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  background: rgba(0,0,0,.7); opacity: 0; transition: opacity .15s; }
+.lut:hover .rm, .lut .rm:focus-visible { opacity: 1; }
+.lut .rm svg.i { width: 13px; height: 13px; }
+
 .bgthumb { width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #111 center/cover no-repeat; border: 1px solid var(--line); }
 
 /* ── Devices / settings ── */

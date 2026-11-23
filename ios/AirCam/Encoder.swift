@@ -45,6 +45,10 @@ final class Encoder {
         set(kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber)
         set(kVTCompressionPropertyKey_MaxKeyFrameInterval, (fps * 2) as CFNumber)
         set(kVTCompressionPropertyKey_AverageBitRate, bitrate as CFNumber)
+        // Tag as plain BT.709 so the PC decoder never color-manages the signal (Apple Log is decoded by the PC's LUT).
+        set(kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2)
+        set(kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2)
+        set(kVTCompressionPropertyKey_YCbCrMatrix, kCVImageBufferYCbCrMatrix_ITU_R_709_2)
         VTCompressionSessionPrepareToEncodeFrames(s)
         session = s
         width = w; height = h; self.fps = fps; self.bitrate = bitrate

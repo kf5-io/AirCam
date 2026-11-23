@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const { execFile } = require('child_process');
 const net = require('net');
 const path = require('path');
@@ -147,6 +147,29 @@ function createWindow() {
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.on('did-finish-load', () => { pushDevices(); setState(conn ? 'connected' : 'disconnected', conn ? { device: conn.dev } : {}); });
 }
+
+// ───────── LUT library: .cube files copied into <userData>/luts ─────────
+const lutDir = () => { const d = path.join(app.getPath('userData'), 'luts'); fs.mkdirSync(d, { recursive: true }); return d; };
+const lutFile = name => { // only plain .cube file names inside lutDir
+  const f = path.basename(String(name));
+  if (!/\.cube$/i.test(f)) throw new Error('not a .cube');
+  return path.join(lutDir(), f);
+};
+ipcMain.handle('lut-list', () => fs.readdirSync(lutDir()).filter(f => /\.cube$/i.test(f)).sort((a, b) => a.localeCompare(b)));
+ipcMain.handle('lut-read', (_e, name) => fs.readFileSync(lutFile(name), 'utf8'));
+ipcMain.handle('lut-delete', (_e, name) => fs.rmSync(lutFile(name), { force: true }));
+ipcMain.handle('lut-import', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Importer des LUT', filters: [{ name: 'LUT 3D (.cube)', extensions: ['cube'] }], properties: ['openFile', 'multiSelections'] });
+  const added = [];
+  for (const src of r.canceled ? [] : r.filePaths) {
+    if (fs.statSync(src).size > 50 << 20) continue; // 50 MB: far above any real .cube
+    let name = path.basename(src), i = 2;
+    while (fs.existsSync(path.join(lutDir(), name))) name = path.basename(src).replace(/(\.cube)$/i, ` (${i++})$1`);
+    fs.copyFileSync(src, path.join(lutDir(), name));
+    added.push(name);
+  }
+  return added;
+});
 
 ipcMain.handle('dll-path', () => dllPath());
 ipcMain.handle('vcam-registered', () => vcamRegistered());
