@@ -43,6 +43,15 @@ a { color: var(--accent-2); cursor: pointer; }
 #nav a.on { background: var(--surface-2); color: var(--text); }
 #nav a svg { flex: none; }
 #nav .spacer { flex: 1; }
+/* Rail collapsed: icons only. On open, labels slide in one after another (as in KF Player). */
+#nav a span, #nav .logo span { opacity: 0; transform: translateX(-10px); transition: opacity .15s, transform .15s; }
+#nav:hover a span, #nav:hover .logo span { opacity: 1; transform: none; transition: opacity .28s ease, transform .38s cubic-bezier(.2,.8,.2,1); }
+#nav:hover .logo span { transition-delay: .04s; }
+#nav:hover a:nth-child(2) span { transition-delay: .07s; }
+#nav:hover a:nth-child(3) span { transition-delay: .10s; }
+#nav:hover a:last-child span { transition-delay: .13s; }
+#nav .logo img { transition: transform .45s cubic-bezier(.34,1.56,.64,1); }
+#nav:hover .logo img { transform: rotate(-8deg) scale(1.06); }
 svg.i { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 svg.i .fill { fill: currentColor; stroke: none; }
 
