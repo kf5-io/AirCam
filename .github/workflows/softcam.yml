@@ -1,0 +1,52 @@
+# Builds the virtual camera DLL (softcam, MIT, https://github.com/tshino/softcam) renamed to "AirCam"
+# and publishes it as release asset `softcam-v1.8.1/softcam.dll` (fetched by `npm run get-softcam`).
+name: softcam
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ['.github/workflows/softcam.yml']
+
+permissions:
+  contents: write
+
+env:
+  SOFTCAM_REF: v1.8.1
+  TAG: softcam-v1.8.1
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: tshino/softcam, ref: '${{ env.SOFTCAM_REF }}' }
+
+      # Own device name, CLSID and shared memory names: no clash with other softcam-based apps.
+      - name: Rename to AirCam
+        shell: pwsh
+        run: |
+          $f = 'src/softcam/softcam.cpp'
+          $c = Get-Content $f -Raw
+          $c = $c -replace '0xaef3b972, 0x5fa5, 0x4647, 0x95, 0x71, 0x35, 0x8e, 0xb4, 0x72, 0xbc, 0x9e', '0xea0f6050, 0x9b6b, 0x4207, 0xad, 0x34, 0xb8, 0x6e, 0x41, 0x2c, 0x64, 0x5e'
+          $c = $c -replace 'L"DirectShow Softcam"', 'L"AirCam"'
+          if ($c -notmatch 'L"AirCam"' -or $c -notmatch '0xea0f6050') { throw 'patch failed: softcam.cpp' }
+          Set-Content $f $c -NoNewline
+          foreach ($f in 'src/softcamcore/FrameBuffer.cpp', 'src/softcamcore/DShowSoftcam.cpp') {
+            $c = (Get-Content $f -Raw) -replace '"DirectShow Softcam/', '"AirCam/' -replace 'L"DirectShow Softcam Stream"', 'L"AirCam Stream"'
+            Set-Content $f $c -NoNewline
+          }
+          if ((Get-Content src/softcamcore/FrameBuffer.cpp -Raw) -notmatch '"AirCam/SharedMemory"') { throw 'patch failed: FrameBuffer.cpp' }
+
+      - uses: microsoft/setup-msbuild@v2
+      - run: nuget restore softcam.sln
+      - run: msbuild /m /p:Configuration=Release /p:Platform=x64 softcam.sln
+      - run: x64/Release/core_tests.exe
+
+      - name: Publish release asset
+        shell: pwsh
+        env: { GH_TOKEN: '${{ github.token }}' }
+        run: |
+          Copy-Item LICENSE softcam-LICENSE.txt
+          gh release view $env:TAG -R ${{ github.repository }} 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $env:TAG -R ${{ github.repository }} --title "softcam (AirCam) $env:SOFTCAM_REF" --notes "Virtual camera DLL built by CI from tshino/softcam $env:SOFTCAM_REF (MIT), renamed to AirCam." --target ${{ github.sha }} }
+          gh release upload $env:TAG x64/Release/softcam.dll softcam-LICENSE.txt -R ${{ github.repository }} --clobber

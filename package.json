@@ -1,0 +1,18 @@
+{
+  "name": "aircam",
+  "version": "0.1.0",
+  "description": "La caméra de ton iPhone comme webcam sur Windows",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "get-softcam": "node scripts/get-softcam.js",
+    "dist": "npm run get-softcam && electron-builder --win nsis",
+    "test": "node --test test/"
+  },
+  "repository": { "type": "git", "url": "git+https://github.com/kf5-io/AirCam.git" },
+  "license": "MIT",
+  "type": "commonjs",
+  "bugs": { "url": "https://github.com/kf5-io/AirCam/issues" },
+  "homepage": "https://github.com/kf5-io/AirCam#readme",
+  "productName": "AirCam"
+}
