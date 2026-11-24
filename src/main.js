@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { Bonjour } = require('bonjour-service');
+const { autoUpdater } = require('electron-updater');
 const { MSG, PORT, encode, Parser } = require('./protocol');
 const usbmux = require('./usbmux');
 const secure = require('./secure');
@@ -273,6 +274,23 @@ ipcMain.on('focus', (_e, x, y) => {
 ipcMain.on('background', (_e, bytes) => {
   if (conn && bytes?.length && bytes.length < 16 << 20) conn.send(MSG.BACKGROUND, Buffer.from(bytes));
 });
+
+// ───────── updates: GitHub releases (installer + latest.yml), installed builds only ─────────
+// Downloaded in the background; installed when the user clicks "Redémarrer" (UAC: the install is per machine).
+let update = { state: 'idle' }; // idle | checking | none | downloading | ready | error
+const setUpdate = u => { update = { ...update, ...u }; send('update', update); };
+const checkUpdate = () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); };
+autoUpdater.autoInstallOnAppQuit = false; // no surprise admin prompt when closing the app
+autoUpdater.on('checking-for-update', () => setUpdate({ state: 'checking' }));
+autoUpdater.on('update-not-available', () => setUpdate({ state: 'none' }));
+autoUpdater.on('update-available', i => setUpdate({ state: 'downloading', version: i.version, percent: 0 }));
+autoUpdater.on('download-progress', p => setUpdate({ percent: Math.round(p.percent) }));
+autoUpdater.on('update-downloaded', i => setUpdate({ state: 'ready', version: i.version }));
+autoUpdater.on('error', e => setUpdate({ state: 'error', error: String(e?.message || e).split('\n')[0].slice(0, 160) }));
+app.whenReady().then(() => { setTimeout(checkUpdate, 5000); setInterval(checkUpdate, 6 * 3600 * 1000); });
+ipcMain.handle('update-get', () => ({ ...update, current: app.getVersion(), packaged: app.isPackaged }));
+ipcMain.on('update-check', checkUpdate);
+ipcMain.on('update-install', () => { if (update.state === 'ready') autoUpdater.quitAndInstall(true, true); }); // silent, relaunch
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(() => { createWindow(); pollUsb(); });

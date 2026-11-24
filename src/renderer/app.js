@@ -438,7 +438,29 @@ function renderNav() {
     h('div', { class: 'logo' }, h('img', { src: '../assets/icon.png', alt: '' }), h('span', {}, 'AirCam')),
     ...NAV.map(([v, label, ic]) => h('a', { class: view === v ? 'on' : '', onclick: () => go(v) }, icon(ic), h('span', {}, label))),
     h('div', { class: 'spacer' }),
-    h('a', { class: view === 'settings' ? 'on' : '', onclick: () => go('settings') }, icon('gear'), h('span', {}, 'Réglages')));
+    h('a', { class: (view === 'settings' ? 'on' : '') + (upd.state === 'ready' ? ' badge' : ''), onclick: () => go('settings') }, icon('gear'), h('span', {}, 'Réglages')));
+}
+
+// ───────── updates (src/main.js: electron-updater, GitHub releases) ─────────
+let upd = { state: 'idle' };
+aircam.update.get().then(u => { upd = u; render(); });
+aircam.update.on(u => {
+  if (u.state === 'ready' && upd.state !== 'ready') toast(`AirCam ${u.version} est prête : Réglages › Redémarrer`);
+  upd = { ...upd, ...u };
+  renderNav();
+  if (view === 'settings') render();
+});
+function updateRow() {
+  const s = upd.state, label =
+    !upd.packaged ? 'Version de développement : pas de mise à jour automatique.' :
+    s === 'checking' ? 'Recherche de mises à jour…' :
+    s === 'downloading' ? `Téléchargement de la version ${upd.version}… ${upd.percent || 0} %` :
+    s === 'ready' ? `La version ${upd.version} est prête.` :
+    s === 'error' ? `Impossible de vérifier les mises à jour (${upd.error}).` :
+    s === 'none' ? 'AirCam est à jour.' : '';
+  const btn = s === 'ready' ? h('button', { class: 'btn small primary', onclick: () => aircam.update.install() }, 'Redémarrer et installer')
+    : upd.packaged && s !== 'checking' && s !== 'downloading' ? h('button', { class: 'btn small', onclick: () => aircam.update.check() }, 'Rechercher') : null;
+  return h('div', { class: 'row' }, h('span', {}, h('b', {}, `Version ${upd.current || ''}`), label ? ' — ' + label : ''), btn);
 }
 function go(v) { view = v; render(); $('#main').scrollTop = 0; }
 function render() {
@@ -763,6 +785,9 @@ function vSettings() {
         h('div', { class: 'row' }, h('span', {}, 'Résolution de sortie'),
           h('div', { style: 'width:200px' }, seg([['720p', '720p'], ['1080p', '1080p']], ui.output, v => setUi('output', v)))),
         h('small', { class: 'muted' }, 'Les applications déjà ouvertes doivent être relancées pour voir la nouvelle résolution ou une caméra fraîchement installée.')),
+      box('Mises à jour',
+        updateRow(),
+        h('small', { class: 'muted' }, 'Les nouvelles versions sont téléchargées depuis GitHub en arrière-plan ; Windows demande l’autorisation administrateur pour les installer.')),
       box('À propos',
         h('div', {}, h('b', {}, 'AirCam'), ' — projet open source (MIT). ',
           h('a', { onclick: () => window.open('https://github.com/kf5-io/AirCam') }, 'github.com/kf5-io/AirCam')),

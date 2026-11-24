@@ -81,6 +81,12 @@ contextBridge.exposeInMainWorld('aircam', {
   keyframe: () => ipcRenderer.send('keyframe'),
   focus: (x, y) => ipcRenderer.send('focus', x, y),
   background: bytes => ipcRenderer.send('background', bytes),
+  update: {
+    get: () => ipcRenderer.invoke('update-get'),
+    on: f => on('update', f),
+    check: () => ipcRenderer.send('update-check'),
+    install: () => ipcRenderer.send('update-install'),
+  },
   profiles: {
     read: () => ipcRenderer.invoke('profiles-read'),
     write: list => ipcRenderer.invoke('profiles-write', list),

@@ -78,6 +78,8 @@
 
 L'installeur n'est pas signé : Windows SmartScreen affiche un avertissement au premier lancement (« Informations complémentaires » › « Exécuter quand même »).
 
+**Mises à jour automatiques** (à partir de la 0.1.2) : AirCam vérifie les nouvelles versions sur GitHub au démarrage puis toutes les 6 heures, les télécharge en arrière-plan et affiche un point violet sur Réglages quand une version est prête. Clique sur **Redémarrer et installer** : Windows demande l'autorisation administrateur, l'app se met à jour et se relance. L'app iPhone, elle, se met à jour à la main (nouvelle `AirCam.ipa` avec Sideloadly).
+
 Pour l'USB, il faut le service Apple : installe **Apple Devices** (Microsoft Store) ou iTunes.
 
 ### Sur l'iPhone
@@ -106,6 +108,8 @@ npm start             # lance l'app
 npm test              # tests unitaires (protocole, chiffrement, H.264, LUT, Apple Log, cadrage)
 npm run dist          # installeur Windows dans dist/
 ```
+
+**Publier une version** : monte la version dans `package.json`, `npm run dist`, pousse un tag `vX.Y.Z` (le workflow **ios** attache l'IPA), puis joins à la release `AirCam-Setup-X.Y.Z.exe`, **`latest.yml`** et le `.blockmap` de `dist/` : c'est `latest.yml` que lisent les mises à jour automatiques.
 
 Prérequis : Node.js 20+, Windows 10/11. En développement, clique sur **Installer** (Caméra ou Réglages) pour enregistrer la webcam virtuelle : Windows demande l'autorisation administrateur une fois.
 

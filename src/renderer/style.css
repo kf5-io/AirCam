@@ -43,6 +43,9 @@ a { color: var(--accent-2); cursor: pointer; }
 #nav a.on { background: var(--surface-2); color: var(--text); }
 #nav a svg { flex: none; }
 #nav .spacer { flex: 1; }
+#nav a.badge { position: relative; }
+#nav a.badge::after { content: ''; position: absolute; top: 9px; left: 31px; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent); } /* update ready */
 /* Rail collapsed: icons only. On open, labels slide in one after another (as in KF Player). */
 #nav a span, #nav .logo span { opacity: 0; transform: translateX(-10px); transition: opacity .15s, transform .15s; }
 #nav:hover a span, #nav:hover .logo span { opacity: 1; transform: none; transition: opacity .28s ease, transform .38s cubic-bezier(.2,.8,.2,1); }
