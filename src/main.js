@@ -146,7 +146,8 @@ const mfDir = () => path.join(process.env.ProgramData || 'C:\\ProgramData', 'Air
 function mfTools() {
   const dir = [path.join(process.resourcesPath || '', 'mfcam'), path.join(__dirname, '..', 'vendor', 'mfcam')]
     .find(d => fs.existsSync(path.join(d, 'AirCamMF.dll')) && fs.existsSync(path.join(d, 'aircam-mfcam.exe')));
-  return WIN11 && dir ? { dll: path.join(dir, 'AirCamMF.dll'), exe: path.join(dir, 'aircam-mfcam.exe') } : null;
+  // shortcut: the MF camera registers but doesn't stream yet (see native/mfcam/README.md); opt in with AIRCAM_MF=1 until fixed
+  return WIN11 && dir && process.env.AIRCAM_MF === '1' ? { dll: path.join(dir, 'AirCamMF.dll'), exe: path.join(dir, 'aircam-mfcam.exe') } : null;
 }
 const regDefault = key => new Promise(resolve => execFile('reg', ['query', key, '/ve'], (err, out) => resolve(err ? null : out.toLowerCase())));
 async function vcamRegistered() {
