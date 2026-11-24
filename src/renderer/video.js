@@ -1,19 +1,21 @@
 'use strict';
 /* Pure helpers for the video pipeline (loaded by index.html, unit-tested by test/video.test.js). */
 
-// First NAL unit of `type` in an Annex B buffer, without its start code (or null).
-function nal(u8, type) {
+// First NAL unit of `type` in an Annex B buffer, without its start code (or null). HEVC NAL headers keep the type in bits 1-6.
+function nal(u8, type, hevc = false) {
   for (let i = 0; i + 3 < u8.length; i++) {
-    if (u8[i] !== 0 || u8[i + 1] !== 0 || u8[i + 2] !== 1 || (u8[i + 3] & 0x1f) !== type) continue;
+    if (u8[i] !== 0 || u8[i + 1] !== 0 || u8[i + 2] !== 1 || (hevc ? (u8[i + 3] >> 1) & 0x3f : u8[i + 3] & 0x1f) !== type) continue;
     let end = i + 3;
     while (end + 2 < u8.length && !(u8[end] === 0 && u8[end + 1] === 0 && (u8[end + 2] === 1 || u8[end + 2] === 0))) end++;
     return u8.subarray(i + 3, end + 2 < u8.length ? end : u8.length);
   }
   return null;
 }
-const sps = u8 => nal(u8, 7);
+const sps = (u8, hevc = false) => nal(u8, hevc ? 33 : 7, hevc);
+const HEVC_CODEC = 'hvc1.1.6.L153.B0'; // Main, level 5.1 (4K60): the decoder reads the real values from the SPS
 // WebCodecs codec string from the SPS: avc1.PPCCLL (profile, constraint flags, level).
-function codecOf(spsNal) {
+function codecOf(spsNal, hevc = false) {
+  if (hevc) return HEVC_CODEC;
   const hx = b => b.toString(16).padStart(2, '0');
   return spsNal && spsNal.length >= 4 ? `avc1.${hx(spsNal[1])}${hx(spsNal[2])}${hx(spsNal[3])}` : null;
 }
@@ -130,6 +132,7 @@ function easeCrop(cur, target, dt, tau = .45) {
 }
 
 if (typeof module !== 'undefined') module.exports = {
+  HEVC_CODEC,
   coverCrop, framingTarget, easeCrop,
   nal, sps, codecOf, rgbaToBgr, parseCube, sampleLut, makeLut, appleLogToLinear, linearToAppleLog, appleLogToRec709, srgbEotf, LOOKS,
 };

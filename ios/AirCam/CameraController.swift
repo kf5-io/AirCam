@@ -9,6 +9,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
     private let sessionQueue = DispatchQueue(label: "aircam.session")
     private let output = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
+    private var requested = Settings(), fpsCap: Int? // sessionQueue: last settings from the PC, fps limit after an encoder overload
     private let lock = NSLock() // settings / activeFps are written on sessionQueue, read on the video queue
     private var _settings = Settings(), _activeFps = 30
     private(set) var settings: Settings {
@@ -54,7 +55,18 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         }
     }
 
+    /// Encoder can't keep up: limit the frame rate until the PC changes resolution, camera, fps or log.
+    func capFps(_ fps: Int, done: @escaping () -> Void = {}) {
+        sessionQueue.async {
+            self.fpsCap = fps
+            self.configure(self.requested)
+            done()
+        }
+    }
+
     private func configure(_ new: Settings) {
+        if new.resolution != requested.resolution || new.camera != requested.camera || new.fps != requested.fps || new.log != requested.log { fpsCap = nil }
+        requested = new
         var s = new
         if !Self.available.contains(s.camera) { s.camera = "back" }
         session.beginConfiguration()
@@ -67,7 +79,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         do {
             try dev.lockForConfiguration()
             let log = s.log && Self.supportsLog(dev)
-            let (format, fps) = Self.pickFormat(dev, width: s.width, fps: Self.encodableFps(width: s.width, fps: s.fps), log: log)
+            let (format, fps) = Self.pickFormat(dev, width: s.width, fps: min(s.fps, fpsCap ?? s.fps), log: log)
             // Only touch the format / color space / frame rate when they change: re-setting them restarts the sensor
             // (visible hiccup), and zoom or exposure drags send dozens of updates per second.
             if let format, format != dev.activeFormat { dev.activeFormat = format }
@@ -130,14 +142,11 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         return (nil, 30)
     }
 
-    /// Highest of 30/60/120 fps available at `width` (and encodable, see encodableFps).
+    /// Highest of 30/60/120 fps available at `width`.
     static func maxFps(_ dev: AVCaptureDevice, width: Int32, log: Bool) -> Int {
         let best = formats(dev, width: width, log: log).flatMap { $0.videoSupportedFrameRateRanges.map(\.maxFrameRate) }.max() ?? 30
-        return encodableFps(width: width, fps: best >= 120 ? 120 : best >= 60 ? 60 : 30)
+        return best >= 120 ? 120 : best >= 60 ? 60 : 30
     }
-
-    /// The H.264 hardware encoder tops out around 45 fps in 4K: above that it falls behind and frames pile up.
-    static func encodableFps(width: Int32, fps: Int) -> Int { width >= 3840 ? min(fps, 30) : fps }
 
     private static func formats(_ dev: AVCaptureDevice, width w: Int32, log: Bool) -> [AVCaptureDevice.Format] {
         dev.formats.filter { fmt in

@@ -9,6 +9,14 @@ test('codec string from the SPS of an Annex B keyframe', () => {
   assert.strictEqual(sps(Uint8Array.from([0, 0, 0, 1, 0x41, 1])), null);
 });
 
+test('HEVC: SPS found by its 6-bit NAL type, fixed codec string', () => {
+  // VPS (32), SPS (33), PPS (34), IDR (19)
+  const au = Uint8Array.from([0, 0, 0, 1, 0x40, 1, 0xaa, 0, 0, 0, 1, 0x42, 1, 0xbb, 0, 0, 0, 1, 0x44, 1, 0xcc, 0, 0, 0, 1, 0x26, 1, 0xdd]);
+  assert.deepStrictEqual([...sps(au, true)], [0x42, 1, 0xbb]);
+  assert.strictEqual(sps(au), null);
+  assert.match(codecOf(sps(au, true), true), /^hvc1\./);
+});
+
 test('RGBA to BGR', () => {
   const out = rgbaToBgr(Uint8Array.from([1, 2, 3, 255, 4, 5, 6, 255]), new Uint8Array(6));
   assert.deepStrictEqual([...out], [3, 2, 1, 6, 5, 4]);

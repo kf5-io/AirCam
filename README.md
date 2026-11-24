@@ -26,7 +26,7 @@
 
 **Caméra**
 - Caméra avant, arrière, ultra grand-angle et téléobjectif (selon l'iPhone)
-- 720p, 1080p ou 4K, en 30, 60 ou 120 i/s (les fréquences que ton iPhone ne sait pas faire sont grisées)
+- 720p, 1080p ou 4K, en 30, 60 ou 120 i/s (les fréquences que ton iPhone ne sait pas faire sont grisées). Le 4K passe en HEVC (H.265) si le PC sait le décoder ; si l'iPhone n'arrive pas à suivre, il repasse tout seul en 30 i/s
 - Format vertical 9:16 pour les lives TikTok / Instagram (l'iPhone filme en portrait, pleine résolution)
 - Cadrage automatique façon Center Stage : l'iPhone détecte les visages, le PC recadre en douceur
 - Clic sur l'aperçu : mise au point et exposition à cet endroit
@@ -134,11 +134,11 @@ scripts/get-softcam.js télécharge les DLL compilées par le CI
 test/                  tests unitaires (node --test)
 ```
 
-**Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), applique recadrage, étalonnage et calques dans un canvas, et pousse les images dans la webcam virtuelle.
+**Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel, ou HEVC en 4K (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), applique recadrage, étalonnage et calques dans un canvas, et pousse les images dans la webcam virtuelle.
 
 **Le chiffrement** (`src/secure.js`, `ios/AirCam/Secure.swift`) : à chaque connexion, le PC et l'iPhone échangent une clé X25519 éphémère, en dérivent deux clés AES-256 (HKDF-SHA256), puis chaque message voyage dans un enregistrement AES-256-GCM `[longueur u32][chiffré + tag]` avec un compteur par sens (anti-rejeu). Pas de mot de passe : le flux est illisible pour qui l'écoute, mais aucun appairage n'empêche un autre appareil du réseau de se connecter.
 
-**Le protocole** : messages `[type u8][longueur u32 big-endian][données]`. iPhone → PC : vidéo (`0x01`, Annex B avec SPS/PPS à chaque image clé), état JSON (`0x02`), visages détectés (`0x03`). PC → iPhone : réglages JSON (`0x10`), image d'arrière-plan (`0x11`), demande d'image clé (`0x12`), point de mise au point (`0x13`). En cas de congestion Wi-Fi, l'iPhone jette les images intermédiaires plutôt que d'accumuler du retard, puis renvoie une image clé.
+**Le protocole** : messages `[type u8][longueur u32 big-endian][données]`. iPhone → PC : vidéo (`0x01`, octet de drapeaux bit 0 image clé / bit 1 HEVC, Annex B avec les paramètres à chaque image clé), état JSON (`0x02`), visages détectés (`0x03`). PC → iPhone : réglages JSON (`0x10`), image d'arrière-plan (`0x11`), demande d'image clé (`0x12`), point de mise au point (`0x13`). En cas de congestion Wi-Fi, l'iPhone jette les images intermédiaires plutôt que d'accumuler du retard, puis renvoie une image clé.
 
 **La webcam virtuelle** est [softcam](https://github.com/tshino/softcam) (MIT), un filtre DirectShow. Le workflow **softcam** la compile et la renomme « AirCam » (nom, CLSID et mémoire partagée propres, pour ne pas entrer en conflit avec d'autres apps basées sur softcam). Elle est en 64 bits : les rares applications 32 bits ne la voient pas. Elle n'apparaît pas dans l'app Caméra de Windows ni dans les apps du Store (Media Foundation uniquement) : une caméra Media Foundation pour Windows 11 est en cours (`native/mfcam`, expérimentale, pas installée).
 

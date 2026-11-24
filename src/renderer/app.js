@@ -58,7 +58,12 @@ let vcamInstalled = null;
 let view = 'cam';
 
 const CAMS = { front: 'Avant', back: 'Arrière', ultrawide: 'Ultra grand-angle', tele: 'Téléobjectif' };
-const sendSettings = debounce(() => aircam.control(settings), 60);
+// Tell the phone whether we decode HEVC (used for 4K: H.264 can't encode 4K60 on the phone).
+let hevcOk = false;
+const sendControl = () => aircam.control({ ...settings, hevc: hevcOk });
+VideoDecoder.isConfigSupported({ codec: HEVC_CODEC, hardwareAcceleration: 'prefer-hardware' })
+  .then(r => { hevcOk = !!r.supported; if (hevcOk && conn.state === 'connected') sendControl(); }, () => {});
+const sendSettings = debounce(sendControl, 60);
 function set(k, v) { settings[k] = v; store.set('settings', settings); sendSettings(); }
 function setUi(k, v) { ui[k] = v; store.set('ui', ui); if (k === 'output' || k === 'aspect') openVcam(); if (!live()) placeholder(); }
 // 9:16: the phone films in portrait (full resolution) and the virtual camera becomes vertical.
@@ -350,11 +355,11 @@ function newDecoder(codec) {
   dec.configure({ codec, optimizeForLatency: true });
 }
 aircam.onVideo(u8 => {
-  const key = (u8[0] & 1) === 1;
+  const key = (u8[0] & 1) === 1, hevc = (u8[0] & 2) === 2;
   const data = u8.subarray(9);
   if (key) {
-    const s = sps(data), id = s ? s.join(',') : '';
-    if (s && (id !== decSps || !dec)) { newDecoder(codecOf(s)); decSps = id; } // new stream / resolution change
+    const s = sps(data, hevc), id = s ? (hevc ? 'h' : 'a') + s.join(',') : '';
+    if (s && (id !== decSps || !dec)) { newDecoder(codecOf(s, hevc)); decSps = id; } // new stream / codec / resolution change
     waitKey = false;
   }
   if (!dec || waitKey) return;
@@ -370,7 +375,7 @@ aircam.onState(s => {
   conn = s;
   if (s.state === 'connected' && was !== 'connected') {
     waitKey = true; decSps = '';
-    aircam.control(settings);
+    sendControl();
     if (settings.background === 'replace') sendBg();
     toast(s.device.via === 'usb' ? 'iPhone connecté en USB' : `Connecté à ${s.device.name}`);
   }
@@ -604,7 +609,7 @@ function applyProfile(p) {
   store.set('settings', settings); store.set('ui', ui); store.set('adj', adj); store.set('look', look); store.set('layers', layers);
   try { if (bgImage) store.set('bgImage', bgImage); else localStorage.removeItem('aircam.bgImage'); } catch {}
   activeProfile = p.name; store.set('profile', p.name);
-  aircam.control(settings);
+  sendControl();
   if (settings.background === 'replace') sendBg();
   if (aspectChanged || outChanged) openVcam(); else redraw();
   if (look.lut?.startsWith('user:') && !luts.has(look.lut)) toast('La LUT de ce profil n’est plus dans la bibliothèque');

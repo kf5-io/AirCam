@@ -16,11 +16,12 @@ final class AppModel: ObservableObject {
     private let faceRequest = VNDetectFaceRectanglesRequest()
     private var needKey = false // a frame was dropped: P-frames are useless until the next keyframe (VideoToolbox callback thread)
     private var frameCount = 0
+    private var statAt = 0.0, slowSecs = 0 // encoder-overload watch (video queue)
 
     init() {
         UIDevice.current.isBatteryMonitoringEnabled = true
         camera.onFrame = { [weak self] pb, pts in self?.frame(pb, pts) } // video queue
-        encoder.onData = { [weak self] data, key, pts in self?.sendVideo(data, key, pts) }
+        encoder.onData = { [weak self] data, key, hevc, pts in self?.sendVideo(data, key, hevc, pts) }
         server.onConnection = { [weak self] peer in
             guard let self else { return }
             DispatchQueue.main.async { self.peer = peer }
@@ -43,7 +44,20 @@ final class AppModel: ObservableObject {
         frameCount += 1
         if s.framing, frameCount % 5 == 0 { detectFaces(pb) } // ~6–24 Hz is plenty for smooth framing on the PC
         let img = s.background == "none" ? pb : segmenter.process(pb, mode: s.background)
-        encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: s.bitrate)
+        encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: s.bitrate, hevc: (s.hevc ?? false) && s.width >= 3840)
+        watchEncoder(CMTimeGetSeconds(pts))
+    }
+
+    /// If the encoder keeps skipping frames (e.g. 4K60 on an older iPhone), fall back to 30 fps instead of stuttering.
+    private func watchEncoder(_ t: Double) {
+        guard t - statAt >= 1 else { return }
+        statAt = t
+        let fps = camera.activeFps, dropped = encoder.takeDropped()
+        slowSecs = fps > 30 && dropped > fps / 5 ? slowSecs + 1 : 0
+        if slowSecs >= 2 {
+            slowSecs = 0
+            camera.capFps(30) { [weak self] in self?.sendStatus() }
+        }
     }
 
     private func detectFaces(_ pb: CVPixelBuffer) {
@@ -56,14 +70,14 @@ final class AppModel: ObservableObject {
         if let json = try? JSONSerialization.data(withJSONObject: ["f": f]) { server.send(.faces, json, droppable: true) }
     }
 
-    private func sendVideo(_ data: Data, _ key: Bool, _ pts: CMTime) {
+    private func sendVideo(_ data: Data, _ key: Bool, _ hevc: Bool, _ pts: CMTime) {
         // After a drop, wait for the link to drain, then ask for ONE keyframe (forcing one per drop floods a slow link).
         if needKey && !key {
             if !server.isCongested { encoder.requestKeyframe() }
             return
         }
         var payload = Data(capacity: data.count + 9)
-        payload.append(key ? 1 : 0)
+        payload.append((key ? 1 : 0) | (hevc ? 2 : 0))
         var us = UInt64(max(0, CMTimeGetSeconds(pts) * 1_000_000)).bigEndian
         withUnsafeBytes(of: &us) { payload.append(contentsOf: $0) }
         payload.append(data)

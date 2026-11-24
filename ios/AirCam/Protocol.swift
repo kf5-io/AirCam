@@ -2,7 +2,7 @@ import Foundation
 
 // Wire protocol shared with the Windows app (src/protocol.js): [u8 type][u32 BE length][payload].
 enum Msg: UInt8 {
-    case video = 0x01      // iPhone → PC: [u8 flags (bit0 = keyframe)][u64 BE pts µs][H.264 Annex B]
+    case video = 0x01      // iPhone → PC: [u8 flags (bit0 = keyframe, bit1 = HEVC)][u64 BE pts µs][H.264/HEVC Annex B]
     case status = 0x02     // iPhone → PC: JSON Status
     case faces = 0x03      // iPhone → PC: {"f": [[x, y, w, h], …]} normalized, top-left origin (auto framing)
     case control = 0x10    // PC → iPhone: JSON Settings (full object)
@@ -29,6 +29,7 @@ struct Settings: Codable, Equatable {
     var log = false            // Apple Log capture (iPhone 15 Pro and later); the PC applies the LUT
     var portrait = false       // vertical 9:16 output: frames come out in portrait
     var framing = false        // auto framing: send face rectangles to the PC
+    var hevc: Bool? = nil      // the PC decodes HEVC: used for 4K (optional, older PCs don't send it)
 
     var width: Int32 { resolution == "4k" ? 3840 : resolution == "720p" ? 1280 : 1920 }
     var bitrate: Int {
