@@ -1,6 +1,7 @@
 const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
 const { execFile } = require('child_process');
 const net = require('net');
+const os = require('os');
 const path = require('path');
 const fs = require('fs');
 const { Bonjour } = require('bonjour-service');
@@ -136,22 +137,39 @@ function autoConnect() {
   if (pick) connect(pick);
 }
 
-// ───────── virtual camera registration (regsvr32, needs admin once) ─────────
-function vcamRegistered() {
-  return new Promise(resolve => {
-    execFile('reg', ['query', `HKCR\\CLSID\\${CLSID}\\InprocServer32`, '/ve'], (err, out) => {
-      const dll = dllPath();
-      resolve(!err && !!dll && out.toLowerCase().includes(dll.toLowerCase()));
-    });
-  });
+// ───────── virtual cameras: DirectShow (softcam, all Windows) + Media Foundation (Windows 11) ─────────
+// One elevated PowerShell run registers both. The MF media source is loaded by the Frame Server service, which can't
+// read a DLL inside a user profile: it is copied to %ProgramData%\AirCam first.
+const MF_CLSID = '{1576B23A-51A4-4423-96FE-2388C2ED1EB0}'; // must match .github/workflows/mfcam.yml
+const WIN11 = Number(os.release().split('.')[2]) >= 22000;
+const mfDir = () => path.join(process.env.ProgramData || 'C:\\ProgramData', 'AirCam');
+function mfTools() {
+  const dir = [path.join(process.resourcesPath || '', 'mfcam'), path.join(__dirname, '..', 'vendor', 'mfcam')]
+    .find(d => fs.existsSync(path.join(d, 'AirCamMF.dll')) && fs.existsSync(path.join(d, 'aircam-mfcam.exe')));
+  return WIN11 && dir ? { dll: path.join(dir, 'AirCamMF.dll'), exe: path.join(dir, 'aircam-mfcam.exe') } : null;
+}
+const regDefault = key => new Promise(resolve => execFile('reg', ['query', key, '/ve'], (err, out) => resolve(err ? null : out.toLowerCase())));
+async function vcamRegistered() {
+  const dll = dllPath();
+  const ds = await regDefault(`HKCR\\CLSID\\${CLSID}\\InprocServer32`);
+  const dshow = !!dll && !!ds && ds.includes(dll.toLowerCase());
+  const mf = !mfTools() || !!(await regDefault(`HKLM\\SOFTWARE\\Classes\\CLSID\\${MF_CLSID}\\InprocServer32`));
+  return dshow && mf;
 }
 function vcamRegister(on) {
   const dll = dllPath();
   if (!dll) return Promise.resolve(false);
   const q = s => `'${s.replace(/'/g, "''")}'`; // PowerShell single-quoted literal
-  const args = [...(on ? [] : ['/u']), '/s', `"${dll}"`].map(q).join(',');
+  const reg = (file, undo) => `Start-Process regsvr32.exe -Wait -ArgumentList ${[...(undo ? ['/u'] : []), '/s', `"${file}"`].map(q).join(',')}`;
+  const mf = mfTools(), mfDll = path.join(mfDir(), 'AirCamMF.dll');
+  const lines = on
+    ? [reg(dll), ...(mf ? [`New-Item -ItemType Directory -Force ${q(mfDir())} | Out-Null`,
+      `Copy-Item -Force ${q(mf.dll)} ${q(mfDll)} -ErrorAction SilentlyContinue`, reg(mfDll), `& ${q(mf.exe)} install`] : [])]
+    : [...(mf ? [`& ${q(mf.exe)} remove`, reg(mfDll, true)] : []), reg(dll, true)];
+  const encoded = Buffer.from(lines.join('\n'), 'utf16le').toString('base64');
   return new Promise(resolve => execFile('powershell.exe', ['-NoProfile', '-Command',
-    `Start-Process regsvr32.exe -ArgumentList ${args} -Verb RunAs -Wait`], () => vcamRegistered().then(resolve)));
+    `Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand','${encoded}'`],
+  () => vcamRegistered().then(resolve)));
 }
 
 // ───────── window ─────────

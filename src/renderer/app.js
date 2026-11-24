@@ -67,7 +67,6 @@ function setAspect(v) { setUi('aspect', v); set('portrait', v === '9:16'); crop 
 const OUT = { '720p': [1280, 720], '1080p': [1920, 1080] };
 const canvas = h('canvas');
 const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
-let bgr = null;
 let lastFrame = 0;
 let vcamOk = false;
 const live = () => performance.now() - lastFrame < 1000;
@@ -76,14 +75,13 @@ async function openVcam() {
   let [w, hh] = OUT[ui.output] || OUT['1080p'];
   if (ui.aspect === '9:16') [w, hh] = [hh, w];
   canvas.width = w; canvas.height = hh;
-  bgr = new Uint8Array(w * hh * 3);
   vcamOk = await aircam.vcam.open(w, hh);
   placeholder();
 }
 
 function pushVcam() {
-  if (!vcamOk || !aircam.vcam.inUse()) return; // nobody is using the camera: skip the readback
-  aircam.vcam.send(rgbaToBgr(ctx.getImageData(0, 0, canvas.width, canvas.height).data, bgr));
+  if (!aircam.vcam.wanted()) return; // nobody is using the camera: skip the readback
+  aircam.vcam.send(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
 }
 
 // The output shows `crop` (normalized source rectangle): cover-fit, or following faces when framing is on.

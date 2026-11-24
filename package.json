@@ -42,6 +42,10 @@
       {
         "from": "vendor/softcam",
         "to": "softcam"
+      },
+      {
+        "from": "vendor/mfcam",
+        "to": "mfcam"
       }
     ],
     "win": {

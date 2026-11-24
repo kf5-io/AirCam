@@ -24,6 +24,47 @@ async function vcamOpen(width, height) {
 }
 function vcamClose() { if (cam) { fn.remove(cam); cam = null; } }
 window.addEventListener('beforeunload', vcamClose);
+const softcamInUse = () => !!cam && fn.connected(cam);
+
+// Media Foundation camera (Windows 11, native/mfcam): the media source creates "Global\AirCamMF" while an app
+// uses the camera; we write BGRA frames into it. Layout documented in native/mfcam/FrameGenerator.h.
+const k32 = koffi.load('kernel32.dll');
+const OpenFileMappingW = k32.func('void* __stdcall OpenFileMappingW(uint32_t, bool, str16)');
+const MapViewOfFile = k32.func('void* __stdcall MapViewOfFile(void*, uint32_t, uint32_t, uint32_t, size_t)');
+const GetTickCount64 = k32.func('uint64_t __stdcall GetTickCount64()');
+const MF_HEADER = 64, MF_MAX = 1920 * 1920, MF_SIZE = MF_HEADER + MF_MAX * 4, FILE_MAP_RW = 0x0002 | 0x0004;
+let mf = null, mfTried = 0;
+function mfView() {
+  if (mf || Date.now() - mfTried < 1000) return mf;
+  mfTried = Date.now();
+  const h = OpenFileMappingW(FILE_MAP_RW, false, 'Global\\AirCamMF'); // absent until an app opens the camera
+  const p = h && MapViewOfFile(h, FILE_MAP_RW, 0, 0, MF_SIZE);
+  if (!p) return null;
+  const ab = koffi.view(p, MF_SIZE);
+  mf = { dv: new DataView(ab), px: new Uint32Array(ab, MF_HEADER) };
+  return mf;
+}
+const mfInUse = () => { const m = mfView(); return !!m && Number(GetTickCount64()) - Number(m.dv.getBigUint64(24, true)) < 2000; };
+function mfWrite(rgba, w, h) {
+  if (w * h > MF_MAX) return;
+  const { dv, px } = mf, src = new Uint32Array(rgba.buffer, rgba.byteOffset, w * h);
+  const seq = dv.getUint32(12, true);
+  dv.setUint32(12, (seq | 1) >>> 0, true); // odd: writing
+  for (let i = 0; i < src.length; i++) { const v = src[i]; px[i] = (v & 0xff00ff00) | ((v & 0xff) << 16) | ((v >>> 16) & 0xff); } // RGBA → BGRA
+  dv.setUint32(0, 0x464D4341, true); dv.setUint32(4, w, true); dv.setUint32(8, h, true);
+  dv.setBigUint64(16, BigInt(GetTickCount64()), true);
+  dv.setUint32(12, ((seq | 1) + 1) >>> 0, true); // even: done
+}
+let bgr = null;
+function sendRgba(rgba, w, h) {
+  if (rgba.length !== w * h * 4) return;
+  if (softcamInUse() && size.width === w && size.height === h) {
+    if (!bgr || bgr.length !== w * h * 3) bgr = new Uint8Array(w * h * 3);
+    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) { bgr[j] = rgba[i + 2]; bgr[j + 1] = rgba[i + 1]; bgr[j + 2] = rgba[i]; }
+    fn.send(cam, bgr);
+  }
+  if (mfInUse()) mfWrite(rgba, w, h);
+}
 
 const on = (ch, f) => ipcRenderer.on(ch, (_e, v) => f(v));
 contextBridge.exposeInMainWorld('aircam', {
@@ -53,7 +94,7 @@ contextBridge.exposeInMainWorld('aircam', {
     registered: () => ipcRenderer.invoke('vcam-registered'),
     register: on => ipcRenderer.invoke('vcam-register', on),
     open: (w, h) => vcamOpen(w, h),
-    inUse: () => !!cam && fn.connected(cam),
-    send: bgr => { if (cam && bgr.length === size.width * size.height * 3) fn.send(cam, bgr); },
+    wanted: () => softcamInUse() || mfInUse(), // an app is reading one of our cameras
+    send: (rgba, w, h) => sendRgba(rgba, w, h), // canvas RGBA, top-down
   },
 });
