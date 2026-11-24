@@ -6,7 +6,8 @@ final class Encoder {
     private var width = 0, height = 0, fps = 0, bitrate = 0, hevc = false
     private var forceKey = false
     // Frames handed to VideoToolbox and not returned yet. EncodeFrame blocks when the encoder is behind, which would
-    // stall the capture queue: past 2 in flight we drop the frame instead (lower latency, too).
+    // stall the capture queue: past 3 in flight we drop the frame instead. 2 was too few: the hardware pipelines
+    // frames, and at 2 it capped 1080p60 at ~48 fps and 4K60 at ~30 even when the encoder could keep up.
     private var inFlight = 0, dropped = 0
     private let lock = NSLock()
     var onData: ((Data, Bool, Bool, CMTime) -> Void)? // data, keyframe, HEVC, pts
@@ -32,7 +33,7 @@ final class Encoder {
         }
         guard let s = session else { return }
         lock.lock()
-        if inFlight >= 2 { dropped += 1; lock.unlock(); return } // encoder behind: skip this frame
+        if inFlight >= 3 { dropped += 1; lock.unlock(); return } // encoder behind: skip this frame
         inFlight += 1
         lock.unlock()
         let props: CFDictionary? = forceKey ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
