@@ -139,17 +139,17 @@ input[type=range]:active::-webkit-slider-thumb { transform: scale(1.15); }
 .cam > div:first-child { position: sticky; top: 56px; } /* preview stays visible while the panel scrolls */
 .btn.danger:hover:not(:disabled) { background: rgba(255,92,138,.25); color: #ff5c8a; }
 
-/* profiles */
-.chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.pchip { position: relative; display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px; border-radius: 99px; cursor: pointer;
-  background: var(--surface-2); font-size: 14px; font-weight: 600; border: 1px solid transparent; transition: background .15s, border-color .15s, padding .15s; }
-.pchip:hover { background: rgba(255,255,255,.18); padding-right: 34px; }
-.pchip.on { border-color: var(--accent); background: rgba(124,92,255,.22); }
-.pchip .rm { position: absolute; right: 6px; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; opacity: 0; transition: opacity .15s; }
-.pchip:hover .rm, .pchip .rm:focus-visible { opacity: 1; }
-.pchip .rm:hover { background: rgba(0,0,0,.4); }
-.pchip .rm svg.i { width: 13px; height: 13px; }
-.box .inline .btn { flex: none; }
+/* profiles page */
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; margin-top: 26px; }
+.pcard { display: flex; flex-direction: column; border-radius: 16px; overflow: hidden; background: var(--surface); border: 1px solid var(--line); transition: border-color .2s, transform .2s, box-shadow .2s; }
+.pcard:hover { transform: translateY(-2px); box-shadow: 0 16px 40px rgba(0,0,0,.45); }
+.pcard.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 16px 40px rgba(124,92,255,.18); }
+.pthumb { position: relative; aspect-ratio: 16 / 9; background: #111 center/cover no-repeat; border-bottom: 1px solid var(--line); }
+.pthumb .chip { position: absolute; top: 10px; left: 10px; height: 28px; font-size: 12px; }
+.pbody { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px 16px; }
+.pbody h3 { font-size: 18px; }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.tags span { font-size: 12px; padding: 3px 9px; border-radius: 99px; background: var(--surface-2); color: #d6d6de; }
 
 /* adjustments page */
 .boxhead { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

@@ -27,6 +27,7 @@ const ICONS = { // static, trusted markup
   adjust: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v17"/><path class="fill" d="M12 3.5a8.5 8.5 0 0 1 0 17z"/>',
   reset: '<path d="M4 12a8 8 0 1 0 2.6-5.9L4 8.5"/><path d="M4 4v4.5h4.5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  profiles: '<path d="M6 3.5h12a1 1 0 0 1 1 1V21l-7-4.5L5 21V4.5a1 1 0 0 1 1-1z"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
   eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff: '<path d="M3 3l18 18M10.6 5.6A9 9 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a16 16 0 0 1-2.9 3.6M6.4 6.9A15.6 15.6 0 0 0 2.5 12S6 18.5 12 18.5c1.6 0 3-.4 4.2-1M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
@@ -405,7 +406,7 @@ function pickBg() {
 }
 
 // ───────── views ─────────
-const NAV = [['cam', 'Caméra', 'cam'], ['adjust', 'Ajustements', 'adjust'], ['layers', 'Calques', 'layers'], ['devices', 'Appareils', 'phone']];
+const NAV = [['cam', 'Caméra', 'cam'], ['adjust', 'Ajustements', 'adjust'], ['layers', 'Calques', 'layers'], ['profiles', 'Profils', 'profiles'], ['devices', 'Appareils', 'phone']];
 function renderNav() {
   $('#nav').replaceChildren(
     h('div', { class: 'logo' }, h('img', { src: '../assets/icon.png', alt: '' }), h('span', {}, 'AirCam')),
@@ -416,7 +417,7 @@ function renderNav() {
 function go(v) { view = v; render(); $('#main').scrollTop = 0; }
 function render() {
   renderNav();
-  $('#main').replaceChildren({ cam: vCam, adjust: vAdjust, layers: vLayersPage, devices: vDevices, settings: vSettings }[view]());
+  $('#main').replaceChildren({ cam: vCam, adjust: vAdjust, layers: vLayersPage, profiles: vProfilesPage, devices: vDevices, settings: vSettings }[view]());
 }
 
 // UI atoms
@@ -473,7 +474,6 @@ function vCam() {
 
   const off = c ? '' : ' off';
   const panel = h('div', { class: 'panel' },
-    vProfiles(),
     h('div', { class: 'box' + off }, h('h3', {}, 'Caméra'),
       seg(Object.entries(CAMS).filter(([k]) => cams.includes(k)).map(([k, v]) => [k, v.replace('Ultra grand-angle', 'Ultra GA').replace('Téléobjectif', 'Télé')]),
         settings.camera, v => { set('camera', v); if (v === 'front' && settings.torch) set('torch', false); })),
@@ -566,7 +566,14 @@ const snapshot = name => ({
   settings: { ...settings, torch: false },
   ui: { ...ui }, adj: structuredClone(adj), look: { ...look },
   layers: layers.map(({ box, ...l }) => l), bgImage,
+  thumb: thumbOf(),
 });
+// Small JPEG of the current output for the profile card.
+function thumbOf() {
+  const c = h('canvas', { width: 320, height: Math.round(320 * canvas.height / canvas.width) });
+  c.getContext('2d').drawImage(canvas, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', .8);
+}
 async function saveProfiles() {
   try { await aircam.profiles.write(profiles); } catch { toast('Impossible d’enregistrer les profils'); }
 }
@@ -599,22 +606,43 @@ function applyProfile(p) {
   toast(`Profil « ${p.name} »`);
   render();
 }
-function vProfiles() {
-  const input = h('input', { class: 'field', placeholder: 'Nom du profil (ex. Visio, Stream)', maxlength: 40 });
-  const save = () => saveProfile(input.value || activeProfile || '');
+// Profiles page: one card per profile (thumbnail taken when saved + summary), apply / update / delete.
+function profileSummary(p) {
+  const st = p.settings || {}, lut = p.look?.lut;
+  const lutName = !lut ? null : lut.startsWith('look:') ? LOOKS[lut.slice(5)]?.[0] : lut.startsWith('user:') ? lut.slice(5).replace(/\.cube$/i, '') : null;
+  return [
+    CAMS[st.camera] || 'Arrière', `${st.resolution || '1080p'} · ${st.fps || 30} i/s`, p.ui?.aspect === '9:16' ? 'Vertical 9:16' : 'Paysage 16:9',
+    st.framing && 'Cadrage auto', st.log && 'Apple Log', lutName && `LUT ${lutName}`,
+    Object.values(p.adj || {}).some(a => a.on && a.v) && 'Ajustements',
+    p.layers?.length ? `${p.layers.length} calque${p.layers.length > 1 ? 's' : ''}` : null,
+    st.background === 'blur' ? 'Fond flou' : st.background === 'replace' ? 'Fond remplacé' : null,
+  ].filter(Boolean);
+}
+async function deleteProfile(p) {
+  profiles = profiles.filter(x => x !== p);
+  if (activeProfile === p.name) { activeProfile = null; store.set('profile', null); }
+  await saveProfiles(); render();
+}
+function vProfilesPage() {
+  const input = h('input', { class: 'field', placeholder: 'Nom du nouveau profil (ex. Visio, Stream, TikTok)', maxlength: 40 });
+  const save = () => { if (input.value.trim()) saveProfile(input.value); else toast('Donne un nom au profil'); };
   input.onkeydown = e => { if (e.key === 'Enter') save(); };
-  return h('div', { class: 'box' }, h('h3', {}, 'Profils'),
-    profiles.length ? h('div', { class: 'chips' }, profiles.map(p => h('div', { class: 'pchip' + (p.name === activeProfile ? ' on' : ''), title: `Appliquer « ${p.name} »`, onclick: () => applyProfile(p) },
-      h('span', {}, p.name),
-      h('button', { class: 'rm', 'aria-label': `Supprimer ${p.name}`, onclick: async e => {
-        e.stopPropagation();
-        profiles = profiles.filter(x => x !== p);
-        if (activeProfile === p.name) { activeProfile = null; store.set('profile', null); }
-        await saveProfiles(); render();
-      } }, icon('x')))))
-      : h('small', { class: 'muted' }, 'Enregistre caméra, ajustements, LUT et calques sous un nom, puis passe de l’un à l’autre en un clic.'),
-    h('div', { class: 'inline' }, input, h('button', { class: 'btn small', onclick: save }, 'Enregistrer')),
-    activeProfile && profiles.some(p => p.name === activeProfile) && h('small', { class: 'muted' }, `Entrée sans nom : met à jour « ${activeProfile} ».`));
+  return h('div', { class: 'page' },
+    h('h1', {}, 'Profils'),
+    h('p', { class: 'sub' }, 'Un profil enregistre tout d’un coup : caméra, image, format, ajustements, LUT, arrière-plan et calques. Applique-le en un clic avant un appel ou un live.'),
+    h('div', { class: 'inline' }, input, h('button', { class: 'btn primary', onclick: save }, icon('plus'), 'Enregistrer les réglages actuels')),
+    profiles.length
+      ? h('div', { class: 'pgrid' }, profiles.map(p => h('div', { class: 'pcard' + (p.name === activeProfile ? ' on' : '') },
+        h('button', { class: 'pthumb', style: p.thumb ? `background-image:url("${p.thumb}")` : null, title: `Appliquer « ${p.name} »`, onclick: () => applyProfile(p) },
+          p.name === activeProfile && h('span', { class: 'chip' }, h('span', { class: 'dot ok' }), 'Actif')),
+        h('div', { class: 'pbody' },
+          h('h3', {}, p.name),
+          h('div', { class: 'tags' }, profileSummary(p).map(t => h('span', {}, t))),
+          h('div', { class: 'btns' },
+            h('button', { class: 'btn small primary', onclick: () => applyProfile(p) }, 'Appliquer'),
+            h('button', { class: 'btn small', title: 'Remplacer par les réglages actuels', onclick: () => saveProfile(p.name) }, 'Mettre à jour'),
+            h('button', { class: 'btn small danger', 'aria-label': `Supprimer ${p.name}`, onclick: () => deleteProfile(p) }, icon('trash')))))))
+      : h('div', { class: 'empty', style: 'margin-top:22px' }, 'Aucun profil pour l’instant. Règle la caméra comme tu l’aimes, puis enregistre-la ici sous un nom.'));
 }
 
 // Layers page: same preview (drag layers on it) + the layer editor.
@@ -726,5 +754,5 @@ async function installVcam(on = true) {
 render();
 openVcam();
 loadUserLuts().then(() => { if (view === 'adjust') render(); });
-aircam.profiles.read().then(p => { profiles = Array.isArray(p) ? p : []; if (view === 'cam') render(); });
+aircam.profiles.read().then(p => { profiles = Array.isArray(p) ? p : []; if (view === 'profiles') render(); });
 aircam.vcam.registered().then(r => { vcamInstalled = r; render(); });
