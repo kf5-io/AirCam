@@ -6,7 +6,11 @@
 
 <p align="center">
   La caméra de ton <b>iPhone</b> comme webcam sur <b>Windows</b>, en Wi-Fi ou en USB.<br>
-  Une webcam virtuelle « AirCam » utilisable dans Zoom, Teams, Discord, OBS, Meet… façon Camo Studio / iVCam, open source et gratuit.
+  Une webcam virtuelle « AirCam » pour Zoom, Teams, Discord, OBS, Meet… façon Camo Studio / iVCam, open source et gratuite.
+</p>
+
+<p align="center">
+  <a href="https://github.com/kf5-io/AirCam/releases/latest"><b>Télécharger</b></a> · <a href="#installation">Installation</a> · <a href="#développement">Développement</a>
 </p>
 
 ![Caméra](docs/camera.png)
@@ -17,19 +21,18 @@
 - Wi-Fi : l'iPhone est trouvé automatiquement sur le réseau local (Bonjour), sans saisir d'adresse
 - USB : plus stable, moins de latence, utilisé en priorité dès que le câble est branché
 - Connexion manuelle par adresse IP si la découverte automatique est bloquée
-- Flux chiffré de bout en bout (échange de clés X25519 éphémères, AES-256-GCM), sans mot de passe
+- Flux chiffré (échange de clés X25519 éphémères, AES-256-GCM), sans mot de passe
 - Reconnexion automatique (app iPhone relancée, câble rebranché, Wi-Fi qui saute)
 
-**Image**
+**Caméra**
 - Caméra avant, arrière, ultra grand-angle et téléobjectif (selon l'iPhone)
-- 720p, 1080p ou 4K, en 30 ou 60 i/s
-- Zoom, exposition, mise au point verrouillable
-- Miroir et retournement à 180° (iPhone posé dans l'autre sens)
+- 720p, 1080p ou 4K, en 30, 60 ou 120 i/s (les fréquences que ton iPhone ne sait pas faire sont grisées)
 - Format vertical 9:16 pour les lives TikTok / Instagram (l'iPhone filme en portrait, pleine résolution)
 - Cadrage automatique façon Center Stage : l'iPhone détecte les visages, le PC recadre en douceur
 - Clic sur l'aperçu : mise au point et exposition à cet endroit
-- 30, 60 ou 120 i/s selon l'iPhone
+- Zoom, exposition, mise au point verrouillable, miroir, retournement à 180°
 - Lampe torche de l'iPhone comme lumière d'appoint
+- Arrière-plan flou ou remplacé par une image, calculé sur l'iPhone (Vision) : zéro charge pour le PC
 
 **Ajustements et LUT**
 - Balance des blancs automatique ou manuelle (température, teinte), réglée directement sur le capteur de l'iPhone
@@ -38,42 +41,39 @@
 - **Apple Log** (iPhone 15 Pro et plus) : plus de dynamique, conversion Apple Log → Rec.709 intégrée ou ta propre LUT log (The One LUT…)
 - Rendu sur le GPU du PC (WebGL2), aperçu instantané
 
-**Arrière-plan**
-- Flou ou remplacement par une image, calculé sur l'iPhone (Vision, segmentation de personne) : zéro charge pour le PC
-
 **Calques**
 - Logos, filigranes (PNG transparents) et textes par-dessus la caméra, visibles dans toutes les applications
 - Déplacement à la souris directement sur l'aperçu, taille à la molette, positions rapides (coins, centre)
-- Opacité, couleur et fond du texte, visibilité, ordre des calques ; tout est mémorisé
+- Opacité, couleur et fond du texte, visibilité, ordre des calques
 
 **Profils**
-- Caméra, ajustements, LUT et calques enregistrés ensemble (« Visio », « Stream »…), appliqués en un clic
+- Caméra, format, ajustements, LUT, arrière-plan et calques enregistrés ensemble (« Visio », « Stream », « TikTok »…)
+- Une carte par profil avec une miniature et le résumé des réglages, appliquée en un clic
 
 **Webcam virtuelle**
-- Apparaît sous le nom « AirCam » dans toutes les applications compatibles DirectShow
-- Sortie en 720p ou 1080p ; écran « En attente de l'iPhone » quand le téléphone n'est pas connecté
+- Apparaît sous le nom « AirCam » dans les applications de visio et de streaming (DirectShow)
+- Sortie 720p ou 1080p, paysage ou vertical ; écran « En attente de l'iPhone » quand le téléphone n'est pas là
 - Ne consomme rien tant qu'aucune application n'utilise la caméra
 
 **App iPhone**
 - Aperçu, état de la connexion, « Écran noir » pour économiser la batterie pendant un appel
 - Tous les réglages se font depuis le PC
 
-| Appareils |
-|---|
-| ![Appareils](docs/appareils.png) |
+| Ajustements et LUT | Calques |
+|---|---|
+| ![Ajustements](docs/ajustements.png) | ![Calques](docs/calques.png) |
+
+| Profils | Appareils |
+|---|---|
+| ![Profils](docs/profils.png) | ![Appareils](docs/appareils.png) |
 
 ## Installation
 
 ### Sur le PC
 
-Télécharge `AirCam-Setup-<version>.exe` dans les [releases](https://github.com/kf5-io/AirCam/releases), ou construis-le :
-
-```sh
-npm install
-npm run dist
-```
-
-Résultat : `dist/AirCam-Setup-<version>.exe`. L'installeur demande les droits administrateur pour enregistrer la webcam virtuelle, et crée les raccourcis Bureau et menu Démarrer.
+1. Télécharge `AirCam-Setup-<version>.exe` dans la [dernière release](https://github.com/kf5-io/AirCam/releases/latest)
+2. Lance-le : il demande les droits administrateur pour enregistrer la webcam virtuelle, et crée les raccourcis Bureau et menu Démarrer
+3. Autorise AirCam dans le pare-feu Windows si on te le demande (nécessaire pour trouver l'iPhone en Wi-Fi)
 
 L'installeur n'est pas signé : Windows SmartScreen affiche un avertissement au premier lancement (« Informations complémentaires » › « Exécuter quand même »).
 
@@ -81,60 +81,67 @@ Pour l'USB, il faut le service Apple : installe **Apple Devices** (Microsoft Sto
 
 ### Sur l'iPhone
 
-L'app iPhone n'est pas sur l'App Store. Elle se compile sur GitHub Actions (pas besoin de Mac) et s'installe avec un identifiant Apple gratuit :
+L'app iPhone n'est pas sur l'App Store. Elle est compilée par GitHub Actions (pas besoin de Mac) et s'installe avec un identifiant Apple gratuit :
 
-1. Télécharge `AirCam.ipa` dans les [releases](https://github.com/kf5-io/AirCam/releases) (ou dans les artefacts du workflow **ios**)
+1. Télécharge `AirCam.ipa` dans la [dernière release](https://github.com/kf5-io/AirCam/releases/latest)
 2. Installe-la avec [Sideloadly](https://sideloadly.io), iPhone branché, en te connectant avec ton identifiant Apple
-3. Sur l'iPhone : Réglages › Général › VPN et gestion de l'appareil › fais confiance à ton identifiant. Active le mode développeur si iOS le demande
+3. Sur l'iPhone : Réglages › Général › VPN et gestion de l'appareil › fais confiance à ton identifiant. Active le mode développeur si iOS le demande (Réglages › Confidentialité et sécurité)
 4. Ouvre AirCam, autorise la caméra et le réseau local
 
 > Avec un identifiant Apple gratuit, l'app expire au bout de 7 jours : relance Sideloadly pour la réinstaller. Un compte développeur payant la signe pour 1 an.
 
-Garde l'app ouverte au premier plan : iOS coupe la caméra des apps en arrière-plan.
+Garde l'app ouverte au premier plan : iOS coupe la caméra des apps en arrière-plan. iOS 16 minimum (iOS 17 pour l'Apple Log).
+
+### Utilisation
+
+Ouvre AirCam sur le PC et sur l'iPhone : la connexion est automatique. Dans Zoom, Teams, Discord, OBS…, choisis la caméra **AirCam**. Les applications déjà ouvertes doivent être relancées pour voir une caméra fraîchement installée ou un changement de format.
 
 ## Développement
 
 ```sh
 npm install
-npm run get-softcam   # télécharge la DLL de la webcam virtuelle dans vendor/softcam (une fois)
+npm run get-softcam   # télécharge les webcams virtuelles compilées par le CI dans vendor/ (une fois)
 npm start             # lance l'app
-npm test              # tests unitaires (protocole, parsing H.264, conversion d'image, LUT, Apple Log)
+npm test              # tests unitaires (protocole, chiffrement, H.264, LUT, Apple Log, cadrage)
+npm run dist          # installeur Windows dans dist/
 ```
 
 Prérequis : Node.js 20+, Windows 10/11. En développement, clique sur **Installer** (Caméra ou Réglages) pour enregistrer la webcam virtuelle : Windows demande l'autorisation administrateur une fois.
 
-L'app iPhone (`ios/`) se génère avec [XcodeGen](https://github.com/yonaskolb/XcodeGen) : `cd ios && xcodegen generate`, puis ouvre `AirCam.xcodeproj` sur un Mac. Sans Mac, chaque push sur `ios/` lance le workflow **ios**, qui produit l'IPA non signée.
+L'app iPhone (`ios/`) se génère avec [XcodeGen](https://github.com/yonaskolb/XcodeGen) : `cd ios && xcodegen generate`, puis ouvre `AirCam.xcodeproj` sur un Mac. Sans Mac, chaque push sur `ios/` lance le workflow **ios**, qui produit l'IPA non signée (et l'attache à la release pour un tag `v*`).
 
 ## Architecture
 
 ```
 src/
-  main.js              process principal : fenêtre, découverte Bonjour + USB, connexion à l'iPhone, installation de la webcam
-  preload.js           API exposée à l'interface + webcam virtuelle (softcam.dll via koffi)
+  main.js              process principal : fenêtre, découverte Bonjour + USB, connexion, LUT, profils, installation de la webcam
+  preload.js           API exposée à l'interface + sortie webcam virtuelle (softcam.dll via koffi)
   protocol.js          protocole réseau partagé avec l'iPhone
   secure.js            chiffrement du flux (X25519 + AES-256-GCM)
   usbmux.js            tunnel TCP vers l'iPhone par le câble (service Apple Mobile Device)
   renderer/
     index.html, app.js, style.css   l'interface (vanilla JS, sans framework, même design que KF Player)
-    video.js                         fonctions pures : SPS H.264, RGBA → BGR, LUT .cube, courbe Apple Log, looks
+    video.js                         fonctions pures : SPS H.264, LUT .cube, courbe Apple Log, looks, cadrage
     grade.js                         étalonnage GPU (WebGL2) : netteté, LUT 3D, ajustements
 ios/
   project.yml          projet XcodeGen
-  AirCam/              app SwiftUI : capture, segmentation, encodage, serveur
+  AirCam/              app SwiftUI : capture, visages, segmentation, encodage, serveur chiffré
+  Tests/main.swift     vérifie que le chiffrement iPhone et PC produisent les mêmes octets (CI)
+native/mfcam/          caméra Media Foundation pour Windows 11 (expérimentale, voir son README)
 build/installer.nsh    enregistrement de la webcam virtuelle à l'installation
-scripts/get-softcam.js télécharge la DLL compilée par le CI
-.github/workflows/     softcam.yml (DLL de la webcam), ios.yml (IPA)
+scripts/get-softcam.js télécharge les DLL compilées par le CI
+.github/workflows/     softcam.yml (webcam DirectShow), mfcam.yml (webcam Media Foundation), ios.yml (IPA)
 test/                  tests unitaires (node --test)
 ```
 
-**Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), dessine dans un canvas (aperçu, miroir, rotation) et pousse les images dans la webcam virtuelle.
+**Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), applique recadrage, étalonnage et calques dans un canvas, et pousse les images dans la webcam virtuelle.
 
-**Le chiffrement** (`src/secure.js`, `ios/AirCam/Secure.swift`) : à chaque connexion, le PC et l'iPhone échangent une clé X25519 éphémère, en dérivent deux clés AES-256 (HKDF-SHA256), puis chaque message voyage dans un enregistrement AES-256-GCM `[longueur u32][chiffré + tag]` avec un compteur par sens (anti-rejeu). Pas de mot de passe : le flux est illisible pour qui l'écoute, mais aucun appairage n'empêche un autre appareil du réseau de se connecter. Le CI vérifie que CryptoKit et Node produisent les mêmes octets.
+**Le chiffrement** (`src/secure.js`, `ios/AirCam/Secure.swift`) : à chaque connexion, le PC et l'iPhone échangent une clé X25519 éphémère, en dérivent deux clés AES-256 (HKDF-SHA256), puis chaque message voyage dans un enregistrement AES-256-GCM `[longueur u32][chiffré + tag]` avec un compteur par sens (anti-rejeu). Pas de mot de passe : le flux est illisible pour qui l'écoute, mais aucun appairage n'empêche un autre appareil du réseau de se connecter.
 
 **Le protocole** : messages `[type u8][longueur u32 big-endian][données]`. iPhone → PC : vidéo (`0x01`, Annex B avec SPS/PPS à chaque image clé), état JSON (`0x02`), visages détectés (`0x03`). PC → iPhone : réglages JSON (`0x10`), image d'arrière-plan (`0x11`), demande d'image clé (`0x12`), point de mise au point (`0x13`). En cas de congestion Wi-Fi, l'iPhone jette les images intermédiaires plutôt que d'accumuler du retard, puis renvoie une image clé.
 
-**La webcam virtuelle** est [softcam](https://github.com/tshino/softcam) (MIT), un filtre DirectShow. Le workflow **softcam** la compile et la renomme « AirCam » (nom, CLSID et mémoire partagée propres, pour ne pas entrer en conflit avec d'autres apps basées sur softcam). Elle est en 64 bits : les rares applications 32 bits ne la voient pas. Elle n'apparaît pas dans l'app Caméra de Windows ni dans les apps du Store (Media Foundation uniquement) : une caméra Media Foundation pour Windows 11 est en cours (`native/mfcam`, expérimentale, pas encore installée).
+**La webcam virtuelle** est [softcam](https://github.com/tshino/softcam) (MIT), un filtre DirectShow. Le workflow **softcam** la compile et la renomme « AirCam » (nom, CLSID et mémoire partagée propres, pour ne pas entrer en conflit avec d'autres apps basées sur softcam). Elle est en 64 bits : les rares applications 32 bits ne la voient pas. Elle n'apparaît pas dans l'app Caméra de Windows ni dans les apps du Store (Media Foundation uniquement) : une caméra Media Foundation pour Windows 11 est en cours (`native/mfcam`, expérimentale, pas installée).
 
 ## Licence
 
-[MIT](LICENSE). softcam : MIT, © tshino.
+[MIT](LICENSE). softcam : MIT, © tshino. VCamSample (base de la caméra Media Foundation) : MIT, © Simon Mourier.
