@@ -11,6 +11,8 @@ final class Server {
     private var conn: NWConnection?
     private var sec: SecureSession? // set once the handshake with `conn` is done
     private var pending = 0 // bytes queued but not yet handed to the OS
+    private var maxPending = 1_500_000 // droppable sends refused above this (set to ~150 ms of video by AppModel)
+    private var drops = 0, worstDelay: UInt64 = 0 // since the last takeStats(): refused sends, worst send → OS delay (ns)
     var onConnection: ((String?) -> Void)? // peer description, nil when disconnected
     var onMessage: ((Msg, Data) -> Void)?
 
@@ -21,7 +23,12 @@ final class Server {
 
     var isConnected: Bool { onQueue { conn != nil && sec != nil } }
     /// Link backed up (bytes queued but not yet handed to the OS).
-    var isCongested: Bool { onQueue { pending > 300_000 } }
+    var isCongested: Bool { onQueue { pending > maxPending / 3 } }
+    func setMaxPending(_ n: Int) { onQueue { maxPending = n } }
+    /// Link health since the last call. TCP hides congestion in its buffers: the time a send takes to be accepted shows it.
+    func takeStats() -> (drops: Int, delayMs: Int) {
+        onQueue { defer { drops = 0; worstDelay = 0 }; return (drops, Int(worstDelay / 1_000_000)) }
+    }
 
     func start() {
         let tcp = NWProtocolTCP.Options()
@@ -100,11 +107,16 @@ final class Server {
     func send(_ type: Msg, _ payload: Data, droppable: Bool = false) -> Bool {
         onQueue {
             guard let c = conn, let s = sec else { return false }
-            if droppable && pending > 1_500_000 { return false } // Wi-Fi congested: drop rather than add latency
+            if droppable && pending > maxPending { drops += 1; return false } // Wi-Fi congested: drop rather than add latency
             guard let d = try? s.seal(frame(type, payload)) else { return false }
             pending += d.count
+            let t = DispatchTime.now().uptimeNanoseconds
             c.send(content: d, completion: .contentProcessed { [weak self] _ in
-                self?.queue.async { self?.pending -= d.count }
+                self?.queue.async {
+                    guard let self else { return }
+                    self.pending -= d.count
+                    self.worstDelay = max(self.worstDelay, DispatchTime.now().uptimeNanoseconds - t)
+                }
             })
             return true
         }

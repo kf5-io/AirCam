@@ -17,6 +17,7 @@ final class AppModel: ObservableObject {
     private var needKey = false // a frame was dropped: P-frames are useless until the next keyframe (VideoToolbox callback thread)
     private var frameCount = 0
     private var statAt = 0.0, slowSecs = 0 // encoder-overload watch (video queue)
+    private var rateScale = 1.0, cleanSecs = 0 // adaptive bitrate (video queue)
 
     init() {
         UIDevice.current.isBatteryMonitoringEnabled = true
@@ -25,7 +26,7 @@ final class AppModel: ObservableObject {
         server.onConnection = { [weak self] peer in
             guard let self else { return }
             DispatchQueue.main.async { self.peer = peer }
-            self.camera.queue.async { if peer != nil { self.encoder.requestKeyframe(); self.sendStatus() } else { self.encoder.reset() } }
+            self.camera.queue.async { self.rateScale = 1; if peer != nil { self.encoder.requestKeyframe(); self.sendStatus() } else { self.encoder.reset() } }
         }
         server.onMessage = { [weak self] type, data in self?.message(type, data) }
         AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
@@ -44,14 +45,25 @@ final class AppModel: ObservableObject {
         frameCount += 1
         if s.framing, frameCount % 5 == 0 { detectFaces(pb) } // ~6–24 Hz is plenty for smooth framing on the PC
         let img = s.background == "none" ? pb : segmenter.process(pb, mode: s.background)
-        encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: s.bitrate, hevc: (s.hevc ?? false) && s.width >= 3840, lowLatency: s.lowLatency ?? true)
+        encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: Int(Double(s.bitrate) * rateScale),
+                       hevc: (s.hevc ?? false) && s.width >= 3840, lowLatency: s.lowLatency ?? (s.width < 3840))
         watchEncoder(CMTimeGetSeconds(pts))
     }
 
-    /// If the encoder keeps skipping frames (e.g. 4K60 on an older iPhone), fall back to 30 fps instead of stuttering.
+    /// Once a second. Adaptive bitrate: a refused frame or a send queued > 200 ms cuts the rate by a quarter, then it
+    /// climbs back 10% per 5 clean seconds. And if the encoder keeps skipping frames (e.g. 4K60 on an older iPhone),
+    /// fall back to 30 fps instead of stuttering.
     private func watchEncoder(_ t: Double) {
         guard t - statAt >= 1 else { return }
         statAt = t
+        let link = server.takeStats()
+        if link.drops > 0 || link.delayMs > 200 { rateScale = max(0.3, rateScale * 0.75); cleanSecs = 0 }
+        else if rateScale < 1, link.delayMs < 60 {
+            cleanSecs += 1
+            if cleanSecs >= 5 { cleanSecs = 0; rateScale = min(1, rateScale * 1.1) }
+        }
+        // Never queue more than ~150 ms of video: past that, dropping and resyncing beats showing old frames.
+        server.setMaxPending(max(200_000, Int(Double(camera.settings.bitrate) * rateScale) * 3 / 160))
         let fps = camera.activeFps, dropped = encoder.takeDropped()
         slowSecs = fps > 30 && dropped > fps / 5 ? slowSecs + 1 : 0
         if slowSecs >= 2 {

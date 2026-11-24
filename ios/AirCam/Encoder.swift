@@ -29,6 +29,7 @@ final class Encoder {
         if session == nil || w != width || h != height || fps != self.fps || hevc != self.hevc || lowLatency != self.lowLatency { setup(w, h, fps, bitrate, hevc, lowLatency) }
         else if bitrate != self.bitrate, let s = session {
             VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
+            if !self.lowLatency { VTSessionSetProperty(s, key: kVTCompressionPropertyKey_DataRateLimits, value: [bitrate * 3 / 16, 1] as CFArray) }
             self.bitrate = bitrate
         }
         guard let s = session else { return }
@@ -65,6 +66,9 @@ final class Encoder {
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_ProfileLevel, hs != nil ? kVTProfileLevel_HEVC_Main_AutoLevel : kVTProfileLevel_H264_High_AutoLevel)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
+        // Speed over quality: the quality mode costs ~47 ms per 4K frame for no visible gain (measured by LensLink).
+        set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
+        set(kVTCompressionPropertyKey_MaxFrameDelayCount, 1 as CFNumber) // never hold frames back
         set(kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber)
         set(kVTCompressionPropertyKey_MaxKeyFrameInterval, (fps * 2) as CFNumber)
         set(kVTCompressionPropertyKey_AverageBitRate, bitrate as CFNumber)
