@@ -80,8 +80,12 @@ async function openVcam() {
   placeholder();
 }
 
+let lastPush = 0;
 function pushVcam() {
+  const now = performance.now();
+  if (now - lastPush < 15) return; // ≤ ~60 Hz: apps never read faster, and each push is a full GPU readback (matters at 120 i/s)
   if (!aircam.vcam.wanted()) return; // nobody is using the camera: skip the readback
+  lastPush = now;
   aircam.vcam.send(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
 }
 
@@ -377,7 +381,8 @@ aircam.onStatus(st => {
   const relayout = !status || st.cameras.join() !== status.cameras.join() || st.hasTorch !== status.hasTorch || st.maxZoom !== status.maxZoom
     || st.supportsLog !== status.supportsLog || st.settings.log !== status.settings.log || st.maxFps !== status.maxFps;
   status = st;
-  if (st.settings.camera !== settings.camera) { settings.camera = st.settings.camera; store.set('settings', settings); }
+  // Adopt the phone's camera only if ours doesn't exist there (a status can lag behind a click: never undo the user's choice).
+  if (!st.cameras.includes(settings.camera)) { settings.camera = st.settings.camera; store.set('settings', settings); }
   if (relayout && (view === 'cam' || view === 'adjust')) render(); else updateChip();
 });
 

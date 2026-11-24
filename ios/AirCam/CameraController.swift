@@ -58,13 +58,22 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
             try dev.lockForConfiguration()
             let log = s.log && Self.supportsLog(dev)
             let (format, fps) = Self.pickFormat(dev, width: s.width, fps: s.fps, log: log)
-            if let format { dev.activeFormat = format }
-            if #available(iOS 17.0, *), log, dev.activeFormat.supportedColorSpaces.contains(.appleLog) { dev.activeColorSpace = .appleLog }
-            else if dev.activeFormat.supportedColorSpaces.contains(.sRGB) { dev.activeColorSpace = .sRGB } // unsupported value would throw
+            // Only touch the format / color space / frame rate when they change: re-setting them restarts the sensor
+            // (visible hiccup), and zoom or exposure drags send dozens of updates per second.
+            if let format, format != dev.activeFormat { dev.activeFormat = format }
+            if #available(iOS 17.0, *), log, dev.activeFormat.supportedColorSpaces.contains(.appleLog) {
+                if dev.activeColorSpace != .appleLog { dev.activeColorSpace = .appleLog }
+            } else if dev.activeColorSpace != .sRGB, dev.activeFormat.supportedColorSpaces.contains(.sRGB) { dev.activeColorSpace = .sRGB } // unsupported value would throw
             s.log = log
-            dev.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
-            dev.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
-            activeFps = fps
+            let duration = CMTime(value: 1, timescale: CMTimeScale(fps))
+            // A frame rate the format can't do raises an exception: check first.
+            if dev.activeFormat.videoSupportedFrameRateRanges.contains(where: { $0.minFrameRate <= Double(fps) && Double(fps) <= $0.maxFrameRate }),
+               dev.activeVideoMinFrameDuration != duration || dev.activeVideoMaxFrameDuration != duration {
+                dev.activeVideoMinFrameDuration = duration
+                dev.activeVideoMaxFrameDuration = duration
+            }
+            let secs = CMTimeGetSeconds(dev.activeVideoMaxFrameDuration)
+            activeFps = secs > 0 ? Int((1 / secs).rounded()) : fps
             dev.videoZoomFactor = max(dev.minAvailableVideoZoomFactor, min(CGFloat(s.zoom), Self.maxZoom(dev)))
             let bias = Float(s.exposure)
             dev.setExposureTargetBias(max(dev.minExposureTargetBias, min(bias, dev.maxExposureTargetBias)))
@@ -86,7 +95,8 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         } catch {}
 
         if let conn = output.connection(with: .video) {
-            if conn.isVideoOrientationSupported { conn.videoOrientation = s.portrait ? .portrait : .landscapeRight }
+            let orientation: AVCaptureVideoOrientation = s.portrait ? .portrait : .landscapeRight
+            if conn.isVideoOrientationSupported, conn.videoOrientation != orientation { conn.videoOrientation = orientation }
             if conn.isVideoMirroringSupported { conn.isVideoMirrored = false } // mirroring is done on the PC
             if conn.isVideoStabilizationSupported { conn.preferredVideoStabilizationMode = .off } // adds latency
         }

@@ -58,8 +58,17 @@ let conn = null;      // { sock, dev }
 let connecting = false;
 let auto = true;      // false after a manual disconnect, until the user picks a device
 let lastName = null;  // name reported by the phone, to prefer it next time
+const failedAt = new Map(); // device id → time of the last failed attempt (auto connect backs off from it)
+const BACKOFF = 8000;
 
-function setState(state, extra = {}) { send('state', { state, ...extra }); }
+// Only real changes reach the window: retries every 2 s must not re-render the UI (inputs, sliders being dragged).
+let lastState = '';
+function setState(state, extra = {}, force = false) {
+  const key = state + (extra.device?.id || '');
+  if (key === lastState && !force) return;
+  lastState = key;
+  send('state', { state, ...extra });
+}
 
 async function connect(dev) {
   if (connecting) return;
@@ -90,9 +99,11 @@ async function connect(dev) {
       setState('disconnected');
       setTimeout(autoConnect, 1000);
     });
+    failedAt.delete(dev.id);
     setState('connected', { device: dev });
   } catch {
-    setState('disconnected'); // app not open on the phone yet: autoConnect retries on the next poll
+    failedAt.set(dev.id, Date.now());
+    setState('disconnected'); // app not open on the phone yet: autoConnect retries after the backoff
   } finally {
     connecting = false;
   }
@@ -128,9 +139,11 @@ function disconnect(manual = true) {
 }
 
 // USB first (more stable, lower latency), then the phone we used last, then any phone.
+// A device that just failed (e.g. a plugged-in iPhone without AirCam open) is skipped for a while, so it can't
+// starve a working Wi-Fi phone.
 function autoConnect() {
   if (!auto || connecting) return;
-  const all = [...devices.values()];
+  const all = [...devices.values()].filter(d => Date.now() - (failedAt.get(d.id) || 0) > BACKOFF);
   const usb = all.find(d => d.via === 'usb');
   if (conn) { if (usb && conn.dev.via === 'wifi') connect(usb); return; }
   const pick = usb || all.find(d => d.name === lastName) || all[0];
@@ -192,7 +205,7 @@ function createWindow() {
     return { action: 'deny' };
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.webContents.on('did-finish-load', () => { pushDevices(); setState(conn ? 'connected' : 'disconnected', conn ? { device: conn.dev } : {}); });
+  win.webContents.on('did-finish-load', () => { pushDevices(); setState(conn ? 'connected' : 'disconnected', conn ? { device: conn.dev } : {}, true); });
 }
 
 // ───────── LUT library: .cube files copied into <userData>/luts ─────────

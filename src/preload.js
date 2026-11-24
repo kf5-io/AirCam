@@ -60,7 +60,8 @@ function sendRgba(rgba, w, h) {
   if (rgba.length !== w * h * 4) return;
   if (softcamInUse() && size.width === w && size.height === h) {
     if (!bgr || bgr.length !== w * h * 3) bgr = new Uint8Array(w * h * 3);
-    for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) { bgr[j] = rgba[i + 2]; bgr[j + 1] = rgba[i + 1]; bgr[j + 2] = rgba[i]; }
+    const s32 = new Uint32Array(rgba.buffer, rgba.byteOffset, w * h); // one read per pixel (little endian: 0xAABBGGRR)
+    for (let i = 0, j = 0; i < s32.length; i++, j += 3) { const v = s32[i]; bgr[j] = (v >>> 16) & 255; bgr[j + 1] = (v >>> 8) & 255; bgr[j + 2] = v & 255; }
     fn.send(cam, bgr);
   }
   if (mfInUse()) mfWrite(rgba, w, h);
