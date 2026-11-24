@@ -20,6 +20,8 @@ final class Server {
     private func onQueue<T>(_ f: () -> T) -> T { DispatchQueue.getSpecific(key: onQueueKey) == true ? f() : queue.sync(execute: f) }
 
     var isConnected: Bool { onQueue { conn != nil && sec != nil } }
+    /// Link backed up (bytes queued but not yet handed to the OS).
+    var isCongested: Bool { onQueue { pending > 300_000 } }
 
     func start() {
         let tcp = NWProtocolTCP.Options()

@@ -1,14 +1,24 @@
 import AVFoundation
 import CoreImage
 
-// Owns the capture session. Frames arrive on `queue` (landscape, NV12 full range).
+// Owns the capture session. Frames arrive on `queue` (landscape, NV12 full range); configuration runs on its own
+// `sessionQueue` so a busy video queue (e.g. 4K) can never hold back a camera change.
 final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
     let session = AVCaptureSession()
     let queue = DispatchQueue(label: "aircam.video")
+    private let sessionQueue = DispatchQueue(label: "aircam.session")
     private let output = AVCaptureVideoDataOutput()
     private var input: AVCaptureDeviceInput?
-    private(set) var settings = Settings()
-    private(set) var activeFps = 30
+    private let lock = NSLock() // settings / activeFps are written on sessionQueue, read on the video queue
+    private var _settings = Settings(), _activeFps = 30
+    private(set) var settings: Settings {
+        get { lock.lock(); defer { lock.unlock() }; return _settings }
+        set { lock.lock(); _settings = newValue; lock.unlock() }
+    }
+    private(set) var activeFps: Int {
+        get { lock.lock(); defer { lock.unlock() }; return _activeFps }
+        set { lock.lock(); _activeFps = newValue; lock.unlock() }
+    }
     var onFrame: ((CVPixelBuffer, CMTime) -> Void)?
 
     static func device(_ name: String) -> AVCaptureDevice? {
@@ -33,12 +43,12 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         if session.canAddOutput(output) { session.addOutput(output) }
     }
 
-    func start() { queue.async { if !self.session.isRunning { self.session.startRunning() } } }
-    func stop() { queue.async { self.session.stopRunning() } }
+    func start() { sessionQueue.async { if !self.session.isRunning { self.session.startRunning() } } }
+    func stop() { sessionQueue.async { self.session.stopRunning() } }
 
-    /// Applies settings; call from any thread. Runs on the video queue so frames and config never race.
+    /// Applies settings; call from any thread. Serialized on the session queue.
     func apply(_ s: Settings, done: @escaping () -> Void = {}) {
-        queue.async {
+        sessionQueue.async {
             self.configure(s)
             done()
         }
@@ -57,7 +67,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         do {
             try dev.lockForConfiguration()
             let log = s.log && Self.supportsLog(dev)
-            let (format, fps) = Self.pickFormat(dev, width: s.width, fps: s.fps, log: log)
+            let (format, fps) = Self.pickFormat(dev, width: s.width, fps: Self.encodableFps(width: s.width, fps: s.fps), log: log)
             // Only touch the format / color space / frame rate when they change: re-setting them restarts the sensor
             // (visible hiccup), and zoom or exposure drags send dozens of updates per second.
             if let format, format != dev.activeFormat { dev.activeFormat = format }
@@ -120,11 +130,14 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
         return (nil, 30)
     }
 
-    /// Highest of 30/60/120 fps available at `width`.
+    /// Highest of 30/60/120 fps available at `width` (and encodable, see encodableFps).
     static func maxFps(_ dev: AVCaptureDevice, width: Int32, log: Bool) -> Int {
         let best = formats(dev, width: width, log: log).flatMap { $0.videoSupportedFrameRateRanges.map(\.maxFrameRate) }.max() ?? 30
-        return best >= 120 ? 120 : best >= 60 ? 60 : 30
+        return encodableFps(width: width, fps: best >= 120 ? 120 : best >= 60 ? 60 : 30)
     }
+
+    /// The H.264 hardware encoder tops out around 45 fps in 4K: above that it falls behind and frames pile up.
+    static func encodableFps(width: Int32, fps: Int) -> Int { width >= 3840 ? min(fps, 30) : fps }
 
     private static func formats(_ dev: AVCaptureDevice, width w: Int32, log: Bool) -> [AVCaptureDevice.Format] {
         dev.formats.filter { fmt in
@@ -138,7 +151,7 @@ final class CameraController: NSObject, AVCaptureVideoDataOutputSampleBufferDele
 
     /// Focus and exposure at a point of the video frame (normalized, top-left origin).
     func focus(at p: CGPoint) {
-        queue.async {
+        sessionQueue.async {
             guard let dev = self.device, (try? dev.lockForConfiguration()) != nil else { return }
             // Points of interest use the sensor's landscape-right space; portrait frames are rotated 90° from it.
             let poi = self.settings.portrait ? CGPoint(x: p.y, y: 1 - p.x) : p

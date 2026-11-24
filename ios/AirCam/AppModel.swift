@@ -14,6 +14,7 @@ final class AppModel: ObservableObject {
     private let segmenter = Segmenter()
     private let server = Server()
     private let faceRequest = VNDetectFaceRectanglesRequest()
+    private var needKey = false // a frame was dropped: P-frames are useless until the next keyframe (VideoToolbox callback thread)
     private var frameCount = 0
 
     init() {
@@ -56,12 +57,17 @@ final class AppModel: ObservableObject {
     }
 
     private func sendVideo(_ data: Data, _ key: Bool, _ pts: CMTime) {
+        // After a drop, wait for the link to drain, then ask for ONE keyframe (forcing one per drop floods a slow link).
+        if needKey && !key {
+            if !server.isCongested { encoder.requestKeyframe() }
+            return
+        }
         var payload = Data(capacity: data.count + 9)
         payload.append(key ? 1 : 0)
         var us = UInt64(max(0, CMTimeGetSeconds(pts) * 1_000_000)).bigEndian
         withUnsafeBytes(of: &us) { payload.append(contentsOf: $0) }
         payload.append(data)
-        if !server.send(.video, payload, droppable: !key) { encoder.requestKeyframe() } // dropped: decoder needs a fresh keyframe
+        if server.send(.video, payload, droppable: !key) { if key { needKey = false } } else { needKey = true }
     }
 
     private func sendStatus() {

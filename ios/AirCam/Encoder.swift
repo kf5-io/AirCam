@@ -5,6 +5,10 @@ final class Encoder {
     private var session: VTCompressionSession?
     private var width = 0, height = 0, fps = 0, bitrate = 0
     private var forceKey = false
+    // Frames handed to VideoToolbox and not returned yet. EncodeFrame blocks when the encoder is behind, which would
+    // stall the capture queue: past 2 in flight we drop the frame instead (lower latency, too).
+    private var inFlight = 0
+    private let lock = NSLock()
     var onData: ((Data, Bool, CMTime) -> Void)?
 
     func requestKeyframe() { forceKey = true }
@@ -12,6 +16,7 @@ final class Encoder {
     func reset() {
         if let s = session { VTCompressionSessionInvalidate(s) }
         session = nil
+        lock.lock(); inFlight = 0; lock.unlock()
     }
 
     func encode(_ pb: CVPixelBuffer, pts: CMTime, fps: Int, bitrate: Int) {
@@ -22,13 +27,20 @@ final class Encoder {
             self.bitrate = bitrate
         }
         guard let s = session else { return }
+        lock.lock()
+        if inFlight >= 2 { lock.unlock(); return } // encoder behind: skip this frame
+        inFlight += 1
+        lock.unlock()
         let props: CFDictionary? = forceKey ? [kVTEncodeFrameOptionKey_ForceKeyFrame: kCFBooleanTrue] as CFDictionary : nil
         forceKey = false
-        VTCompressionSessionEncodeFrame(s, imageBuffer: pb, presentationTimeStamp: pts, duration: .invalid,
-                                        frameProperties: props, infoFlagsOut: nil) { [weak self] status, _, sbuf in
+        let err = VTCompressionSessionEncodeFrame(s, imageBuffer: pb, presentationTimeStamp: pts, duration: .invalid,
+                                                  frameProperties: props, infoFlagsOut: nil) { [weak self] status, _, sbuf in
+            guard let self else { return }
+            self.lock.lock(); self.inFlight = max(0, self.inFlight - 1); self.lock.unlock()
             guard status == noErr, let sbuf, let (data, key) = Self.annexB(sbuf) else { return }
-            self?.onData?(data, key, CMSampleBufferGetPresentationTimeStamp(sbuf))
+            self.onData?(data, key, CMSampleBufferGetPresentationTimeStamp(sbuf))
         }
+        if err != noErr { lock.lock(); inFlight = max(0, inFlight - 1); lock.unlock() }
     }
 
     private func setup(_ w: Int, _ h: Int, _ fps: Int, _ bitrate: Int) {
