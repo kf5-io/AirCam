@@ -3,7 +3,7 @@ import VideoToolbox
 // Hardware H.264 or HEVC (4K), no B-frames, output as Annex B with parameter sets before each keyframe.
 final class Encoder {
     private var session: VTCompressionSession?
-    private var width = 0, height = 0, fps = 0, bitrate = 0, hevc = false
+    private var width = 0, height = 0, fps = 0, bitrate = 0, hevc = false, lowLatency = true
     private var forceKey = false
     // Frames handed to VideoToolbox and not returned yet. EncodeFrame blocks when the encoder is behind, which would
     // stall the capture queue: past 3 in flight we drop the frame instead. 2 was too few: the hardware pipelines
@@ -23,10 +23,10 @@ final class Encoder {
         lock.lock(); inFlight = 0; lock.unlock()
     }
 
-    func encode(_ pb: CVPixelBuffer, pts: CMTime, fps: Int, bitrate: Int, hevc: Bool) {
+    func encode(_ pb: CVPixelBuffer, pts: CMTime, fps: Int, bitrate: Int, hevc: Bool, lowLatency: Bool = true) {
         let w = CVPixelBufferGetWidth(pb), h = CVPixelBufferGetHeight(pb)
         let bitrate = hevc ? bitrate * 7 / 10 : bitrate // HEVC: same quality for ~30% fewer bits
-        if session == nil || w != width || h != height || fps != self.fps || hevc != self.hevc { setup(w, h, fps, bitrate, hevc) }
+        if session == nil || w != width || h != height || fps != self.fps || hevc != self.hevc || lowLatency != self.lowLatency { setup(w, h, fps, bitrate, hevc, lowLatency) }
         else if bitrate != self.bitrate, let s = session {
             VTSessionSetProperty(s, key: kVTCompressionPropertyKey_AverageBitRate, value: bitrate as CFNumber)
             self.bitrate = bitrate
@@ -48,11 +48,11 @@ final class Encoder {
         if err != noErr { lock.lock(); inFlight = max(0, inFlight - 1); lock.unlock() }
     }
 
-    private func setup(_ w: Int, _ h: Int, _ fps: Int, _ bitrate: Int, _ hevc: Bool) {
+    private func setup(_ w: Int, _ h: Int, _ fps: Int, _ bitrate: Int, _ hevc: Bool, _ lowLatency: Bool) {
         reset()
-        width = w; height = h; self.fps = fps; self.bitrate = bitrate; self.hevc = hevc // even on failure: don't retry every frame
-        // Low-latency rate control is meant for <= 1080p calls: in 4K it caps the encoder around 40 fps.
-        let spec = (max(w, h) < 3840 ? [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue] : [:]) as CFDictionary
+        width = w; height = h; self.fps = fps; self.bitrate = bitrate; self.hevc = hevc; self.lowLatency = lowLatency // even on failure: don't retry every frame
+        // Low-latency rate control keeps every frame about the same size (no bursts that queue up on Wi-Fi).
+        let spec = (lowLatency ? [kVTVideoEncoderSpecification_EnableLowLatencyRateControl: kCFBooleanTrue] : [:]) as CFDictionary
         func create(_ codec: CMVideoCodecType) -> VTCompressionSession? {
             var s: VTCompressionSession?
             return VTCompressionSessionCreate(allocator: nil, width: Int32(w), height: Int32(h), codecType: codec,
@@ -68,6 +68,8 @@ final class Encoder {
         set(kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber)
         set(kVTCompressionPropertyKey_MaxKeyFrameInterval, (fps * 2) as CFNumber)
         set(kVTCompressionPropertyKey_AverageBitRate, bitrate as CFNumber)
+        // Without low-latency mode the encoder bursts up to ~2.5x the average (54 Mbit/s seen in 4K): cap it at 1.5x per second.
+        if !lowLatency { set(kVTCompressionPropertyKey_DataRateLimits, [bitrate * 3 / 16, 1] as CFArray) }
         // Tag as plain BT.709 so the PC decoder never color-manages the signal (Apple Log is decoded by the PC's LUT).
         set(kVTCompressionPropertyKey_ColorPrimaries, kCVImageBufferColorPrimaries_ITU_R_709_2)
         set(kVTCompressionPropertyKey_TransferFunction, kCVImageBufferTransferFunction_ITU_R_709_2)

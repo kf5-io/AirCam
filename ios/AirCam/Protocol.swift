@@ -29,6 +29,7 @@ struct Settings: Codable, Equatable {
     var log = false            // Apple Log capture (iPhone 15 Pro and later); the PC applies the LUT
     var portrait = false       // vertical 9:16 output: frames come out in portrait
     var framing = false        // auto framing: send face rectangles to the PC
+    var lowLatency: Bool? = nil // encoder low-latency rate control (default on); off = burstier but may reach higher fps in 4K
     var hevc: Bool? = nil      // the PC decodes HEVC: used for 4K (optional, older PCs don't send it)
 
     var width: Int32 { resolution == "4k" ? 3840 : resolution == "720p" ? 1280 : 1920 }

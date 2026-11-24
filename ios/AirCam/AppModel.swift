@@ -44,7 +44,7 @@ final class AppModel: ObservableObject {
         frameCount += 1
         if s.framing, frameCount % 5 == 0 { detectFaces(pb) } // ~6–24 Hz is plenty for smooth framing on the PC
         let img = s.background == "none" ? pb : segmenter.process(pb, mode: s.background)
-        encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: s.bitrate, hevc: (s.hevc ?? false) && s.width >= 3840)
+        encoder.encode(img, pts: pts, fps: camera.activeFps, bitrate: s.bitrate, hevc: (s.hevc ?? false) && s.width >= 3840, lowLatency: s.lowLatency ?? true)
         watchEncoder(CMTimeGetSeconds(pts))
     }
 
