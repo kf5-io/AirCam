@@ -18,7 +18,8 @@
 ## Fonctionnalités
 
 **Connexion**
-- Wi-Fi : l'iPhone est trouvé automatiquement sur le réseau local (Bonjour), sans saisir d'adresse
+- Wi-Fi : l'iPhone est trouvé automatiquement sur le réseau local (Bonjour), sans saisir d'adresse, y compris sur un PC avec des cartes réseau virtuelles (VMware, Hyper-V, WSL, VPN)
+- Débit adaptatif : si le Wi-Fi sature, l'iPhone baisse son débit et jette les images en retard plutôt que d'accumuler de la latence (jamais plus de ~150 ms en attente)
 - USB : plus stable, moins de latence, utilisé en priorité dès que le câble est branché
 - Connexion manuelle par adresse IP si la découverte automatique est bloquée
 - Flux chiffré (échange de clés X25519 éphémères, AES-256-GCM), sans mot de passe
@@ -26,13 +27,13 @@
 
 **Caméra**
 - Caméra avant, arrière, ultra grand-angle et téléobjectif (selon l'iPhone)
-- 720p, 1080p ou 4K, en 30, 60 ou 120 i/s (les fréquences que ton iPhone ne sait pas faire sont grisées). Le 4K passe en HEVC (H.265) si le PC sait le décoder ; si l'iPhone n'arrive pas à suivre, il repasse tout seul en 30 i/s
+- 720p, 1080p ou 4K, en 30, 60 ou 120 i/s (les fréquences que ton iPhone ne sait pas faire sont grisées). Vrai 4K60 fluide : le 4K passe en HEVC (H.265) si le PC sait le décoder ; si l'iPhone n'arrive pas à suivre, il repasse tout seul en 30 i/s
 - Format vertical 9:16 pour les lives TikTok / Instagram (l'iPhone filme en portrait, pleine résolution)
 - Cadrage automatique façon Center Stage : l'iPhone détecte les visages, le PC recadre en douceur
 - Clic sur l'aperçu : mise au point et exposition à cet endroit
 - Zoom, exposition, mise au point verrouillable, miroir, retournement à 180°
 - Lampe torche de l'iPhone comme lumière d'appoint
-- Arrière-plan flou ou remplacé par une image, calculé sur l'iPhone (Vision) : zéro charge pour le PC
+- Arrière-plan flou ou remplacé par une image, calculé sur l'iPhone (Vision) : zéro charge pour le PC. Le flou ne prend que le décor (pas de halo autour de toi) et reste léger en 4K
 
 **Ajustements et LUT**
 - Balance des blancs automatique ou manuelle (température, teinte), réglée directement sur le capteur de l'iPhone
