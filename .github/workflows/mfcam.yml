@@ -52,6 +52,10 @@ jobs:
           if ($LASTEXITCODE) { exit 1 }
           New-Item -ItemType Directory out -Force | Out-Null
           Copy-Item (Get-ChildItem vcam -Recurse -Filter VCamSampleSource.dll | Where-Object FullName -match 'x64\\Release' | Select-Object -First 1).FullName out/AirCamMF.dll
+          # Debug build: same code with WINTRACE enabled (ETW provider {964d4572-adb9-4f3a-8170-fcbecec27467}), for diagnostics
+          msbuild vcam/VCamSample.sln /m /t:VCamSampleSource /p:Configuration=Debug /p:Platform=x64
+          if ($LASTEXITCODE) { exit 1 }
+          Copy-Item (Get-ChildItem vcam -Recurse -Filter VCamSampleSource.dll | Where-Object FullName -match 'x64\\Debug' | Select-Object -First 1).FullName out/AirCamMF-debug.dll
 
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Build registration tool
@@ -64,4 +68,4 @@ jobs:
           Copy-Item vcam/LICENSE out/VCamSample-LICENSE.txt
           gh release view $env:TAG -R ${{ github.repository }} 2>$null
           if ($LASTEXITCODE -ne 0) { gh release create $env:TAG -R ${{ github.repository }} --title "AirCam Media Foundation camera" --notes "Windows 11 virtual camera (media source built from smourier/VCamSample, MIT) + registration tool. Built by CI." --target ${{ github.sha }} }
-          gh release upload $env:TAG out/AirCamMF.dll out/aircam-mfcam.exe out/VCamSample-LICENSE.txt -R ${{ github.repository }} --clobber
+          gh release upload $env:TAG out/AirCamMF.dll out/AirCamMF-debug.dll out/aircam-mfcam.exe out/VCamSample-LICENSE.txt -R ${{ github.repository }} --clobber
