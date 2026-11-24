@@ -85,12 +85,18 @@ async function openVcam() {
   placeholder();
 }
 
+const vcamReader = (() => { try { return BgrReadback; } catch { return null; } })(); // null without WebGL2
 let lastPush = 0;
 function pushVcam() {
   const now = performance.now();
-  if (now - lastPush < 15) return; // ≤ ~60 Hz: apps never read faster, and each push is a full GPU readback (matters at 120 i/s)
+  // ~60 Hz max (apps never read faster; 120 i/s pushes every other frame). 12 ms, not 16: Wi-Fi jitter brings frames a
+  // few ms early, and a 16 ms gate skipped those (uneven 33 ms gaps in the webcam).
+  if (now - lastPush < 12) return;
   if (!aircam.vcam.wanted()) return; // nobody is using the camera: skip the readback
   lastPush = now;
+  // softcam: BGR packed and read back on the GPU without blocking (src/renderer/readback.js). The experimental Media
+  // Foundation camera takes RGBA, and the synchronous readback stays as the fallback.
+  if (vcamReader && !aircam.vcam.mf() && vcamReader.read(canvas, aircam.vcam.sendBgr)) return;
   aircam.vcam.send(ctx.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height);
 }
 
@@ -345,11 +351,21 @@ function placeholder() {
 logo.onload = () => { if (!live()) placeholder(); };
 setInterval(() => { if (!live()) placeholder(); }, 500); // keep apps that use the camera fed while there's no video
 
+// Decoded frames: keep only the newest and draw it on the next turn of the event loop. If drawing ever falls behind
+// (busy GPU, 120 i/s), stale frames are skipped instead of piling up in the decoder as latency.
+let nextFrame = null;
+const drawTick = new MessageChannel();
+drawTick.port1.onmessage = () => { const f = nextFrame; nextFrame = null; if (f) draw(f); };
+function onDecoded(frame) {
+  if (nextFrame) nextFrame.close(); else drawTick.port2.postMessage(0);
+  nextFrame = frame;
+}
+
 let dec = null, decSps = '', waitKey = true;
 function newDecoder(codec) {
   try { dec?.close(); } catch {}
   dec = new VideoDecoder({
-    output: draw,
+    output: onDecoded,
     error: () => { dec = null; decSps = ''; waitKey = true; aircam.keyframe(); },
   });
   dec.configure({ codec, optimizeForLatency: true });

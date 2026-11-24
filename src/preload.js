@@ -96,6 +96,10 @@ contextBridge.exposeInMainWorld('aircam', {
     register: on => ipcRenderer.invoke('vcam-register', on),
     open: (w, h) => vcamOpen(w, h),
     wanted: () => softcamInUse() || mfInUse(), // an app is reading one of our cameras
+    mf: () => mfInUse(), // the experimental Media Foundation camera is being read (it needs RGBA, see send)
     send: (rgba, w, h) => sendRgba(rgba, w, h), // canvas RGBA, top-down
+    sendBgr: (bgr, w, h) => { // already packed for softcam on the GPU (renderer/readback.js)
+      if (softcamInUse() && size.width === w && size.height === h && bgr.length === w * h * 3) fn.send(cam, bgr);
+    },
   },
 });

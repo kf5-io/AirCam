@@ -123,6 +123,7 @@ src/
     index.html, app.js, style.css   l'interface (vanilla JS, sans framework, même design que KF Player)
     video.js                         fonctions pures : SPS H.264, LUT .cube, courbe Apple Log, looks, cadrage
     grade.js                         étalonnage GPU (WebGL2) : netteté, LUT 3D, ajustements
+    readback.js                      image de la webcam virtuelle : conversion BGR sur le GPU, relecture asynchrone
 ios/
   project.yml          projet XcodeGen
   AirCam/              app SwiftUI : capture, visages, segmentation, encodage, serveur chiffré
@@ -134,7 +135,7 @@ scripts/get-softcam.js télécharge les DLL compilées par le CI
 test/                  tests unitaires (node --test)
 ```
 
-**Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel, ou HEVC en 4K (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), applique recadrage, étalonnage et calques dans un canvas, et pousse les images dans la webcam virtuelle.
+**Le flux vidéo** : l'iPhone capture (AVFoundation), applique le flou ou le remplacement d'arrière-plan (Vision + Core Image), encode en H.264 matériel, ou HEVC en 4K (VideoToolbox, sans B-frames pour la latence) et sert le flux en TCP sur le port 47800, annoncé en Bonjour (`_aircam._tcp`). En USB, le PC atteint le même port par usbmux. Le PC décode avec WebCodecs (décodage matériel de Chromium), applique recadrage, étalonnage et calques dans un canvas, et pousse les images dans la webcam virtuelle : le GPU les convertit au format de softcam et le PC les relit sans attendre, si bien que le thread de l'interface ne bloque jamais (moins de 1 ms par image, même en 4K60 avec Discord qui lit la caméra). S'il prend du retard, il saute les images périmées au lieu de les empiler.
 
 **Le chiffrement** (`src/secure.js`, `ios/AirCam/Secure.swift`) : à chaque connexion, le PC et l'iPhone échangent une clé X25519 éphémère, en dérivent deux clés AES-256 (HKDF-SHA256), puis chaque message voyage dans un enregistrement AES-256-GCM `[longueur u32][chiffré + tag]` avec un compteur par sens (anti-rejeu). Pas de mot de passe : le flux est illisible pour qui l'écoute, mais aucun appairage n'empêche un autre appareil du réseau de se connecter.
 
