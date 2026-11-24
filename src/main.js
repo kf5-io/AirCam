@@ -28,15 +28,28 @@ const send = (ch, ...a) => { if (win && !win.isDestroyed()) win.webContents.send
 const devices = new Map(); // id → { id, name, via: 'wifi'|'usb', host?, usbId? }
 const pushDevices = () => send('devices', [...devices.values()]);
 
-const bonjour = new Bonjour();
-const browser = bonjour.find({ type: 'aircam', protocol: 'tcp' });
-browser.on('up', svc => {
-  const host = (svc.addresses || []).find(a => net.isIPv4(a)) || svc.referer?.address;
-  if (!host) return;
-  devices.set('wifi:' + svc.name, { id: 'wifi:' + svc.name, name: svc.name, via: 'wifi', host });
-  pushDevices(); autoConnect();
-});
-browser.on('down', svc => { devices.delete('wifi:' + svc.name); pushDevices(); });
+// One browser per network adapter: with VMware / Hyper-V / WSL / VPN adapters, Windows sends unbound multicast out of
+// whichever adapter it picks and the iPhone was never found. Rescanned for adapters that come and go (Wi-Fi, VPN).
+const bonjours = new Map(); // adapter IPv4 → Bonjour instance
+function watchLan() {
+  const addrs = new Set(Object.values(os.networkInterfaces()).flat().filter(a => a.family === 'IPv4' && !a.internal).map(a => a.address));
+  for (const [addr, b] of bonjours) if (!addrs.has(addr)) { b.destroy(); bonjours.delete(addr); }
+  for (const addr of addrs) {
+    if (bonjours.has(addr)) continue;
+    const bonjour = new Bonjour({ interface: addr }, () => {}); // an adapter error (e.g. it just went away) isn't fatal
+    const browser = bonjour.find({ type: 'aircam', protocol: 'tcp' });
+    browser.on('up', svc => {
+      const host = (svc.addresses || []).find(a => net.isIPv4(a)) || svc.referer?.address;
+      if (!host) return;
+      devices.set('wifi:' + svc.name, { id: 'wifi:' + svc.name, name: svc.name, via: 'wifi', host });
+      pushDevices(); autoConnect();
+    });
+    browser.on('down', svc => { devices.delete('wifi:' + svc.name); pushDevices(); });
+    bonjours.set(addr, bonjour);
+  }
+}
+watchLan();
+setInterval(watchLan, 5000);
 
 async function pollUsb() {
   const list = await usbmux.listDevices();
@@ -263,4 +276,4 @@ ipcMain.on('background', (_e, bytes) => {
 
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 app.whenReady().then(() => { createWindow(); pollUsb(); });
-app.on('window-all-closed', () => { bonjour.destroy(); app.quit(); });
+app.on('window-all-closed', () => { for (const b of bonjours.values()) b.destroy(); app.quit(); });
